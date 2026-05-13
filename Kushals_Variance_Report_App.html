@@ -527,7 +527,7 @@ const REQUIRED_COLS = {
 };
 const OPTIONAL_COLS = {
   'Item Code':  ['item code','itemcode','item_code'],
-  'Item Name':  ['item name','itemname','item_name','product name','productname','description','article name','articlename','name'],
+  'Item Name':  ['item name','itemname','item_name','product name','productname','article name','articlename'],
   'DESIGNNO':   ['designno','design no','design_no','design number'],
   'STYLE':      ['style'],
   'COLOR':      ['color','colour'],
@@ -631,7 +631,9 @@ function autoMapColumns() {
 
   const allCols = { ...REQUIRED_COLS, ...OPTIONAL_COLS };
   Object.entries(allCols).forEach(([field, aliases]) => {
-    const idx = headerLower.findIndex(h => aliases.some(a => h === a || h.includes(a)));
+    // Exact match first, then partial-includes fallback
+    let idx = headerLower.findIndex(h => aliases.some(a => h === a));
+    if (idx < 0) idx = headerLower.findIndex(h => aliases.some(a => a.length > 4 && h.includes(a)));
     if (idx >= 0) colMap[field] = headers[idx];
   });
 

@@ -1,0 +1,872 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kushals Stock Audit — Variance Report Generator</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&display=swap');
+
+  :root {
+    --navy:       #1C2B5E;
+    --navy-dark:  #111A3D;
+    --navy-mid:   #243070;
+    --orange:     #E8520A;
+    --orange-lt:  #FF6B2B;
+    --orange-glow:#FF6B2B22;
+    --white:      #FFFFFF;
+    --off-white:  #F5F7FC;
+    --slate:      #64748B;
+    --border:     #DDE3F0;
+    --green:      #059669;
+    --green-bg:   #D1FAE5;
+    --red:        #DC2626;
+    --red-bg:     #FEE2E2;
+    --gold:       #D97706;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'DM Sans', sans-serif;
+    background: var(--off-white);
+    min-height: 100vh;
+    color: var(--navy);
+  }
+
+  /* ─── Header ─────────────────────────────────────────────────────────────── */
+  header {
+    background: var(--navy-dark);
+    padding: 0 2rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 60px;
+    border-bottom: 3px solid var(--orange);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+  .logo { display: flex; align-items: center; gap: 0.75rem; }
+  .logo-badge {
+    background: var(--orange);
+    color: #fff;
+    font-weight: 700;
+    font-size: 0.7rem;
+    letter-spacing: 0.12em;
+    padding: 4px 8px;
+    border-radius: 3px;
+  }
+  .logo-name { color: #fff; font-weight: 600; font-size: 0.95rem; letter-spacing: 0.02em; }
+  .logo-sub  { color: #7B93B8; font-size: 0.75rem; }
+  .header-right { color: #7B93B8; font-size: 0.8rem; font-family: 'DM Mono', monospace; }
+
+  /* ─── Main ───────────────────────────────────────────────────────────────── */
+  main {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 2.5rem 1.5rem;
+  }
+
+  .page-title {
+    font-size: 1.75rem;
+    font-weight: 700;
+    color: var(--navy-dark);
+    margin-bottom: 0.3rem;
+  }
+  .page-sub { color: var(--slate); font-size: 0.9rem; margin-bottom: 2rem; }
+
+  /* ─── Step Cards ─────────────────────────────────────────────────────────── */
+  .steps { display: flex; flex-direction: column; gap: 1.25rem; }
+
+  .step-card {
+    background: #fff;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    overflow: hidden;
+    transition: box-shadow 0.2s;
+  }
+  .step-card:hover { box-shadow: 0 4px 20px rgba(28,43,94,0.08); }
+
+  .step-header {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 1rem 1.25rem;
+    background: var(--navy-dark);
+  }
+  .step-num {
+    background: var(--orange);
+    color: #fff;
+    font-weight: 700;
+    font-size: 0.85rem;
+    width: 28px; height: 28px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+  .step-title { color: #fff; font-weight: 600; font-size: 1rem; }
+  .step-desc  { color: #9DB4D4; font-size: 0.8rem; }
+  .step-body  { padding: 1.25rem; }
+
+  /* ─── Upload Zone ────────────────────────────────────────────────────────── */
+  .upload-zone {
+    border: 2px dashed var(--border);
+    border-radius: 10px;
+    padding: 2.5rem 1rem;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s;
+    position: relative;
+  }
+  .upload-zone:hover, .upload-zone.drag-over {
+    border-color: var(--orange);
+    background: var(--orange-glow);
+  }
+  .upload-zone input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+  .upload-icon { font-size: 2.5rem; margin-bottom: 0.75rem; }
+  .upload-text { font-weight: 600; color: var(--navy); margin-bottom: 0.25rem; }
+  .upload-hint { color: var(--slate); font-size: 0.82rem; }
+  .upload-loaded {
+    border-color: var(--green);
+    background: var(--green-bg);
+  }
+  .upload-loaded .upload-icon { filter: grayscale(0); }
+  .file-info {
+    display: none;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem 1rem;
+    background: var(--green-bg);
+    border-radius: 8px;
+    margin-top: 0.75rem;
+    border: 1px solid #A7F3D0;
+  }
+  .file-info.show { display: flex; }
+  .file-info-name { font-weight: 600; color: var(--green); font-size: 0.9rem; flex: 1; }
+  .file-info-size { color: var(--slate); font-size: 0.8rem; font-family: 'DM Mono', monospace; }
+  .btn-clear { background: none; border: none; cursor: pointer; color: var(--red); font-size: 1.2rem; padding: 0 0.25rem; }
+
+  /* ─── Sheet Selector ─────────────────────────────────────────────────────── */
+  .form-group { margin-bottom: 1rem; }
+  .form-label { display: block; font-weight: 600; font-size: 0.85rem; margin-bottom: 0.4rem; color: var(--navy); }
+  .form-select, .form-input {
+    width: 100%;
+    padding: 0.6rem 0.85rem;
+    border: 1.5px solid var(--border);
+    border-radius: 8px;
+    font-family: 'DM Sans', sans-serif;
+    font-size: 0.9rem;
+    color: var(--navy);
+    background: #fff;
+    transition: border-color 0.2s;
+  }
+  .form-select:focus, .form-input:focus {
+    outline: none;
+    border-color: var(--orange);
+  }
+  .col-mapping { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-top: 0.75rem; }
+  .col-mapping-item { display: flex; flex-direction: column; gap: 0.3rem; }
+  .col-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    font-size: 0.72rem;
+    font-family: 'DM Mono', monospace;
+    background: #EEF2FF;
+    color: var(--navy-mid);
+    padding: 2px 7px;
+    border-radius: 4px;
+    font-weight: 500;
+  }
+  .col-tag.required { background: #FEF3C7; color: #92400E; }
+
+  /* ─── Location order ─────────────────────────────────────────────────────── */
+  .loc-tags { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.5rem; }
+  .loc-tag {
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 0.8rem;
+    font-weight: 500;
+    background: #EEF2FF;
+    color: var(--navy);
+    border: 1.5px solid transparent;
+    cursor: default;
+  }
+  .loc-tag.active { background: var(--navy); color: #fff; }
+  .loc-tag.extra  { background: #FEF3C7; color: #92400E; border-color: #FCD34D; }
+
+  /* ─── Preview Table ──────────────────────────────────────────────────────── */
+  .preview-wrap {
+    overflow-x: auto;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    margin-top: 0.75rem;
+  }
+  .preview-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.78rem;
+    font-family: 'DM Mono', monospace;
+  }
+  .preview-table th {
+    background: var(--navy-dark);
+    color: #fff;
+    padding: 7px 10px;
+    text-align: left;
+    white-space: nowrap;
+    font-weight: 500;
+  }
+  .preview-table td {
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+    color: var(--navy);
+  }
+  .preview-table tr:nth-child(even) td { background: var(--off-white); }
+  .preview-table tr:last-child td { border-bottom: none; }
+  .preview-more { text-align: center; padding: 8px; color: var(--slate); font-size: 0.78rem; background: var(--off-white); }
+
+  /* ─── Stats Row ──────────────────────────────────────────────────────────── */
+  .stats-row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0.75rem;
+    margin: 1rem 0;
+  }
+  .stat-box {
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 0.9rem 1rem;
+    text-align: center;
+  }
+  .stat-val { font-size: 1.6rem; font-weight: 700; color: var(--navy); font-family: 'DM Mono', monospace; }
+  .stat-lbl { font-size: 0.75rem; color: var(--slate); margin-top: 3px; }
+  .stat-box.green .stat-val { color: var(--green); }
+  .stat-box.orange .stat-val { color: var(--orange); }
+
+  /* ─── Generate Button ────────────────────────────────────────────────────── */
+  .btn-generate {
+    width: 100%;
+    padding: 1rem;
+    background: var(--orange);
+    color: #fff;
+    border: none;
+    border-radius: 10px;
+    font-family: 'DM Sans', sans-serif;
+    font-size: 1rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.2s;
+    letter-spacing: 0.03em;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+  }
+  .btn-generate:hover:not(:disabled) {
+    background: var(--orange-lt);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 16px rgba(232,82,10,0.3);
+  }
+  .btn-generate:disabled { background: #ccc; cursor: not-allowed; transform: none; box-shadow: none; }
+
+  /* ─── Progress ───────────────────────────────────────────────────────────── */
+  .progress-bar {
+    height: 6px;
+    background: var(--border);
+    border-radius: 3px;
+    overflow: hidden;
+    margin: 1rem 0;
+    display: none;
+  }
+  .progress-bar.show { display: block; }
+  .progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--orange), var(--orange-lt));
+    border-radius: 3px;
+    transition: width 0.4s ease;
+    width: 0%;
+  }
+  .progress-msg { text-align: center; color: var(--slate); font-size: 0.85rem; margin-top: 0.5rem; }
+
+  /* ─── Result ─────────────────────────────────────────────────────────────── */
+  .result-box {
+    display: none;
+    background: var(--green-bg);
+    border: 1.5px solid #A7F3D0;
+    border-radius: 10px;
+    padding: 1.25rem;
+    margin-top: 1rem;
+  }
+  .result-box.show { display: block; }
+  .result-header { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1rem; }
+  .result-icon { font-size: 1.8rem; }
+  .result-title { font-weight: 700; color: var(--green); font-size: 1.05rem; }
+  .result-sub { color: var(--slate); font-size: 0.83rem; }
+  .result-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.75rem; margin-bottom: 1rem; }
+  .result-stat { background: #fff; border-radius: 8px; padding: 0.75rem; text-align: center; border: 1px solid #A7F3D0; }
+  .result-stat-val { font-size: 1.3rem; font-weight: 700; color: var(--green); font-family: 'DM Mono', monospace; }
+  .result-stat-lbl { font-size: 0.73rem; color: var(--slate); }
+  .loc-summary { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1rem; }
+  .loc-pill {
+    padding: 3px 10px;
+    border-radius: 12px;
+    font-size: 0.78rem;
+    font-weight: 500;
+    background: var(--navy);
+    color: #fff;
+  }
+  .btn-download {
+    width: 100%;
+    padding: 0.85rem;
+    background: var(--navy-dark);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    font-family: 'DM Sans', sans-serif;
+    font-size: 0.95rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+  }
+  .btn-download:hover {
+    background: var(--navy);
+    box-shadow: 0 4px 16px rgba(28,43,94,0.2);
+  }
+
+  /* ─── Info Box ───────────────────────────────────────────────────────────── */
+  .info-box {
+    background: #EEF2FF;
+    border: 1px solid #C7D2FE;
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    font-size: 0.82rem;
+    color: var(--navy-mid);
+    margin-top: 0.75rem;
+  }
+  .info-box strong { color: var(--navy-dark); }
+
+  /* ─── Error ──────────────────────────────────────────────────────────────── */
+  .error-box {
+    display: none;
+    background: var(--red-bg);
+    border: 1.5px solid #FCA5A5;
+    border-radius: 8px;
+    padding: 0.85rem 1rem;
+    color: var(--red);
+    font-size: 0.88rem;
+    margin-top: 0.75rem;
+    font-weight: 500;
+  }
+  .error-box.show { display: block; }
+
+  footer {
+    text-align: center;
+    padding: 1.5rem;
+    color: var(--slate);
+    font-size: 0.78rem;
+    border-top: 1px solid var(--border);
+    margin-top: 3rem;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <div class="logo-badge">KUSHALS</div>
+    <div>
+      <div class="logo-name">Stock Audit Tool</div>
+      <div class="logo-sub">Variance Report Generator</div>
+    </div>
+  </div>
+  <div class="header-right">v2.0 — Audit &amp; Loss Prevention</div>
+</header>
+
+<main>
+  <h1 class="page-title">Variance Report Generator</h1>
+  <p class="page-sub">Upload your current stock export → Configure settings → Download variance report instantly</p>
+
+  <div class="steps">
+
+    <!-- STEP 1: UPLOAD -->
+    <div class="step-card">
+      <div class="step-header">
+        <div class="step-num">1</div>
+        <div>
+          <div class="step-title">Upload Current Stock File</div>
+          <div class="step-desc">Supports .xlsx and .xls files exported from your system</div>
+        </div>
+      </div>
+      <div class="step-body">
+        <div class="upload-zone" id="uploadZone">
+          <input type="file" id="fileInput" accept=".xlsx,.xls" />
+          <div class="upload-icon">📂</div>
+          <div class="upload-text">Click to browse or drag & drop your file here</div>
+          <div class="upload-hint">Supported: .xlsx, .xls — Current stock export from ERP/billing system</div>
+        </div>
+        <div class="file-info" id="fileInfo">
+          <span>✅</span>
+          <span class="file-info-name" id="fileName">—</span>
+          <span class="file-info-size" id="fileSize">—</span>
+          <button class="btn-clear" onclick="clearFile()" title="Remove file">✕</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- STEP 2: CONFIGURE -->
+    <div class="step-card" id="configCard" style="opacity:0.5; pointer-events:none;">
+      <div class="step-header">
+        <div class="step-num">2</div>
+        <div>
+          <div class="step-title">Configure Settings</div>
+          <div class="step-desc">Select sheet, map columns, review detected data</div>
+        </div>
+      </div>
+      <div class="step-body">
+
+        <div class="form-group">
+          <label class="form-label">Select Sheet</label>
+          <select class="form-select" id="sheetSelect" onchange="onSheetChange()">
+            <option>— Upload a file first —</option>
+          </select>
+        </div>
+
+        <div class="form-group" id="colMapSection" style="display:none">
+          <label class="form-label">Column Mapping <span style="color:var(--slate);font-weight:400;font-size:0.78rem;">— auto-detected from your headers</span></label>
+          <div class="col-mapping" id="colMapping"></div>
+          <div class="error-box" id="colError"></div>
+        </div>
+
+        <div class="form-group" id="locSection" style="display:none">
+          <label class="form-label">Detected Locations <span style="color:var(--slate);font-weight:400;font-size:0.78rem;">— sorted in standard order (extras highlighted)</span></label>
+          <div class="loc-tags" id="locTags"></div>
+        </div>
+
+        <div id="previewSection" style="display:none">
+          <label class="form-label" style="margin-top:1rem;">Data Preview <span style="color:var(--slate);font-weight:400;font-size:0.78rem;">— first 5 rows</span></label>
+          <div class="stats-row" id="statsRow"></div>
+          <div class="preview-wrap">
+            <table class="preview-table" id="previewTable"></table>
+            <div class="preview-more" id="previewMore"></div>
+          </div>
+        </div>
+
+        <div class="info-box" id="infoBox" style="display:none">
+          <strong>Logic applied:</strong> Rows are grouped by <strong>Barcode Value + Location</strong>.
+          When the same barcode appears multiple times in the same location, <strong>Current Stock quantities are summed</strong> into one row.
+          Output sorted: Damage → DC → Ecom Sales → INTRANSIT → Main Location → Shortage → any others.
+        </div>
+
+      </div>
+    </div>
+
+    <!-- STEP 3: GENERATE -->
+    <div class="step-card" id="generateCard" style="opacity:0.5; pointer-events:none;">
+      <div class="step-header">
+        <div class="step-num">3</div>
+        <div>
+          <div class="step-title">Generate &amp; Download</div>
+          <div class="step-desc">Process data and download the variance report Excel file</div>
+        </div>
+      </div>
+      <div class="step-body">
+        <button class="btn-generate" id="generateBtn" onclick="generateReport()" disabled>
+          <span>⚡</span> Generate Variance Report
+        </button>
+
+        <div class="progress-bar" id="progressBar">
+          <div class="progress-fill" id="progressFill"></div>
+        </div>
+        <div class="progress-msg" id="progressMsg"></div>
+
+        <div class="result-box" id="resultBox">
+          <div class="result-header">
+            <div class="result-icon">✅</div>
+            <div>
+              <div class="result-title">Variance Report Ready!</div>
+              <div class="result-sub" id="resultSub">—</div>
+            </div>
+          </div>
+          <div class="result-stats" id="resultStats"></div>
+          <div class="loc-summary" id="locSummary"></div>
+          <button class="btn-download" id="downloadBtn" onclick="downloadReport()">
+            ⬇ Download Variance Report (.xlsx)
+          </button>
+        </div>
+
+      </div>
+    </div>
+
+  </div>
+</main>
+
+<footer>Kushals Fashion Jewellery — Inventory &amp; Operations Audit | Loss Prevention Department</footer>
+
+<script>
+// ─── State ────────────────────────────────────────────────────────────────────
+let workbook = null;
+let sheetData = null;
+let headers   = [];
+let colMap    = {};
+let outputWB  = null;
+
+const STD_LOC_ORDER = ['Damage','DC','Ecom Sales','INTRANSIT','Main Location','Shortage'];
+
+const REQUIRED_COLS = {
+  'Barcode Value': ['barcode value','barcode','barcodevalue'],
+  'Location':      ['location','loc'],
+  'Current Stock': ['current stock','currentstock','qty','quantity','stock'],
+};
+const OPTIONAL_COLS = {
+  'Item Code':  ['item code','itemcode','item_code'],
+  'Item Name':  ['item name','itemname','item_name','name'],
+  'DESIGNNO':   ['designno','design no','design_no','design number'],
+  'STYLE':      ['style'],
+  'COLOR':      ['color','colour'],
+  'POLISH':     ['polish'],
+  'SIZE':       ['size'],
+  'BRAND':      ['brand'],
+  'DUMMY7':     ['dummy7','dummy 7'],
+  'DUMMY8':     ['dummy8','dummy 8'],
+  'Pur Price':  ['pur price','pur_price','purchase price','purchaseprice','purprice'],
+  'MRP':        ['mrp','maxretailprice','max retail price'],
+};
+
+// ─── File Upload ──────────────────────────────────────────────────────────────
+const uploadZone = document.getElementById('uploadZone');
+const fileInput  = document.getElementById('fileInput');
+
+uploadZone.addEventListener('dragover', e => { e.preventDefault(); uploadZone.classList.add('drag-over'); });
+uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('drag-over'));
+uploadZone.addEventListener('drop', e => {
+  e.preventDefault();
+  uploadZone.classList.remove('drag-over');
+  if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
+});
+fileInput.addEventListener('change', e => { if (e.target.files[0]) handleFile(e.target.files[0]); });
+
+function handleFile(file) {
+  if (!file.name.match(/\.(xlsx|xls)$/i)) {
+    showError('colError', 'Please upload an Excel file (.xlsx or .xls)');
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      workbook = XLSX.read(e.target.result, { type: 'array', cellDates: true });
+      document.getElementById('fileName').textContent = file.name;
+      document.getElementById('fileSize').textContent = formatSize(file.size);
+      document.getElementById('fileInfo').classList.add('show');
+      uploadZone.classList.add('upload-loaded');
+      uploadZone.querySelector('.upload-icon').textContent = '✅';
+      uploadZone.querySelector('.upload-text').textContent = 'File loaded successfully';
+
+      // Populate sheet selector
+      const sel = document.getElementById('sheetSelect');
+      sel.innerHTML = '';
+      workbook.SheetNames.forEach(name => {
+        const opt = document.createElement('option');
+        opt.value = opt.textContent = name;
+        // Auto-select "Current stock" sheet if found
+        if (name.toLowerCase().includes('current stock')) opt.selected = true;
+        sel.appendChild(opt);
+      });
+
+      enableCard('configCard');
+      onSheetChange();
+    } catch(err) {
+      showError('colError', 'Could not read file: ' + err.message);
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function clearFile() {
+  workbook = null; sheetData = null; headers = []; colMap = {}; outputWB = null;
+  fileInput.value = '';
+  document.getElementById('fileInfo').classList.remove('show');
+  uploadZone.classList.remove('upload-loaded');
+  uploadZone.querySelector('.upload-icon').textContent = '📂';
+  uploadZone.querySelector('.upload-text').textContent = 'Click to browse or drag & drop your file here';
+  document.getElementById('sheetSelect').innerHTML = '<option>— Upload a file first —</option>';
+  disableCard('configCard');
+  disableCard('generateCard');
+  document.getElementById('colMapSection').style.display = 'none';
+  document.getElementById('locSection').style.display = 'none';
+  document.getElementById('previewSection').style.display = 'none';
+  document.getElementById('infoBox').style.display = 'none';
+  document.getElementById('resultBox').classList.remove('show');
+}
+
+function onSheetChange() {
+  const sheetName = document.getElementById('sheetSelect').value;
+  if (!workbook || !sheetName) return;
+
+  const ws = workbook.Sheets[sheetName];
+  sheetData = XLSX.utils.sheet_to_json(ws, { defval: '', raw: false });
+
+  if (!sheetData || sheetData.length === 0) {
+    showError('colError', 'This sheet appears to be empty. Please select a different sheet.');
+    return;
+  }
+
+  headers = Object.keys(sheetData[0]);
+  autoMapColumns();
+  showPreview();
+  enableCard('generateCard');
+  document.getElementById('generateBtn').disabled = false;
+}
+
+function autoMapColumns() {
+  colMap = {};
+  const headerLower = headers.map(h => h.toLowerCase().trim());
+
+  const allCols = { ...REQUIRED_COLS, ...OPTIONAL_COLS };
+  Object.entries(allCols).forEach(([field, aliases]) => {
+    const idx = headerLower.findIndex(h => aliases.some(a => h === a || h.includes(a)));
+    if (idx >= 0) colMap[field] = headers[idx];
+  });
+
+  // Render column mapping
+  const mapDiv = document.getElementById('colMapping');
+  mapDiv.innerHTML = '';
+  const allFields = Object.keys(allCols);
+  allFields.forEach(field => {
+    const isRequired = !!REQUIRED_COLS[field];
+    const mapped = colMap[field];
+    const item = document.createElement('div');
+    item.className = 'col-mapping-item';
+    item.innerHTML = `
+      <span class="col-tag ${isRequired ? 'required' : ''}">
+        ${isRequired ? '★ ' : ''}${field}
+      </span>
+      <select class="form-select" style="font-size:0.8rem;padding:0.4rem 0.6rem;"
+              onchange="colMap['${field}'] = this.value === '__NONE__' ? null : this.value">
+        ${!isRequired ? '<option value="__NONE__">— Not mapped —</option>' : ''}
+        ${headers.map(h => `<option value="${h}" ${h === mapped ? 'selected' : ''}>${h}</option>`).join('')}
+      </select>`;
+    mapDiv.appendChild(item);
+  });
+
+  document.getElementById('colMapSection').style.display = 'block';
+  hideError('colError');
+}
+
+function showPreview() {
+  // Location tags
+  const locSet = new Set();
+  sheetData.forEach(row => {
+    const loc = (row[colMap['Location']] || '').trim();
+    if (loc) locSet.add(loc);
+  });
+  const allLocs = [...locSet];
+  const sortedLocs = [...STD_LOC_ORDER.filter(l => locSet.has(l)),
+                      ...allLocs.filter(l => !STD_LOC_ORDER.includes(l))];
+
+  const tagsDiv = document.getElementById('locTags');
+  tagsDiv.innerHTML = sortedLocs.map(l => {
+    const isExtra = !STD_LOC_ORDER.includes(l);
+    return `<span class="loc-tag ${isExtra ? 'extra' : 'active'}">${l}${isExtra ? ' ✦' : ''}</span>`;
+  }).join('');
+  document.getElementById('locSection').style.display = 'block';
+
+  // Stats
+  const totalRows = sheetData.length;
+  const barcodeCol = colMap['Barcode Value'];
+  const stockCol   = colMap['Current Stock'];
+  const uniqBarcodes = barcodeCol ? new Set(sheetData.map(r => r[barcodeCol])).size : '—';
+  const totalQty = stockCol ? sheetData.reduce((s, r) => s + (parseFloat(r[stockCol]) || 0), 0) : '—';
+
+  document.getElementById('statsRow').innerHTML = `
+    <div class="stat-box"><div class="stat-val">${totalRows.toLocaleString()}</div><div class="stat-lbl">Total Rows</div></div>
+    <div class="stat-box orange"><div class="stat-val">${typeof uniqBarcodes === 'number' ? uniqBarcodes.toLocaleString() : uniqBarcodes}</div><div class="stat-lbl">Unique Barcodes</div></div>
+    <div class="stat-box green"><div class="stat-val">${typeof totalQty === 'number' ? Math.round(totalQty).toLocaleString() : totalQty}</div><div class="stat-lbl">Total Qty</div></div>
+    <div class="stat-box"><div class="stat-val">${sortedLocs.length}</div><div class="stat-lbl">Locations</div></div>`;
+
+  // Preview table (first 5 rows, key columns only)
+  const previewCols = ['Item Code','Item Name','Barcode Value','Location','Current Stock','MRP'].filter(f => colMap[f]);
+  const table = document.getElementById('previewTable');
+  table.innerHTML = `<tr>${previewCols.map(c => `<th>${c}</th>`).join('')}</tr>` +
+    sheetData.slice(0, 5).map(row =>
+      `<tr>${previewCols.map(c => `<td>${row[colMap[c]] || ''}</td>`).join('')}</tr>`
+    ).join('');
+
+  document.getElementById('previewMore').textContent = totalRows > 5 ? `... and ${(totalRows-5).toLocaleString()} more rows` : '';
+  document.getElementById('previewSection').style.display = 'block';
+  document.getElementById('infoBox').style.display = 'block';
+}
+
+// ─── Generate Report ──────────────────────────────────────────────────────────
+async function generateReport() {
+  // Validate required columns
+  const missing = Object.keys(REQUIRED_COLS).filter(f => !colMap[f]);
+  if (missing.length) {
+    showError('colError', `Required columns not mapped: ${missing.join(', ')}. Please check column mapping above.`);
+    return;
+  }
+
+  hideError('colError');
+  document.getElementById('generateBtn').disabled = true;
+  document.getElementById('resultBox').classList.remove('show');
+  showProgress(10, 'Reading source data...');
+
+  await sleep(200);
+  showProgress(30, 'Aggregating by Barcode + Location...');
+
+  // Build aggregated map
+  const dictRow = new Map();  // key → row index in out[]
+  const out = [];
+
+  for (const row of sheetData) {
+    const bv  = String(row[colMap['Barcode Value']] || '').trim();
+    const lv  = String(row[colMap['Location']]      || '').trim();
+    if (!bv || bv === '0' || !lv) continue;
+
+    const key = bv + '\x01' + lv;
+    const qty = parseFloat(row[colMap['Current Stock']]) || 0;
+
+    if (!dictRow.has(key)) {
+      dictRow.set(key, out.length);
+      out.push({
+        'Item Code':    row[colMap['Item Code']]  || '',
+        'Item Name':    row[colMap['Item Name']]  || 'NA',
+        'Barcode Value': bv,
+        'DESIGNNO':     row[colMap['DESIGNNO']]   || 'NA',
+        'STYLE':        row[colMap['STYLE']]      || 'NA',
+        'COLOR':        row[colMap['COLOR']]      || 'NA',
+        'POLISH':       row[colMap['POLISH']]     || 'NA',
+        'SIZE':         row[colMap['SIZE']]       || 'NA',
+        'BRAND':        row[colMap['BRAND']]      || 'NA',
+        'DUMMY7':       row[colMap['DUMMY7']]     || 'NA',
+        'DUMMY8':       row[colMap['DUMMY8']]     || 'NA',
+        'Location':     lv,
+        'Current Qty':  qty,
+        'Pur price':    parseFloat(row[colMap['Pur Price']]) || 0,
+        'MRP':          parseFloat(row[colMap['MRP']])       || 0,
+      });
+    } else {
+      out[dictRow.get(key)]['Current Qty'] += qty;
+    }
+  }
+
+  await sleep(200);
+  showProgress(60, 'Sorting by location...');
+
+  // Sort by location order
+  const locSet = new Set(out.map(r => r['Location']));
+  const locOrder = [...STD_LOC_ORDER.filter(l => locSet.has(l)),
+                    ...[...locSet].filter(l => !STD_LOC_ORDER.includes(l))];
+  const locIndexMap = Object.fromEntries(locOrder.map((l,i) => [l,i]));
+  out.sort((a,b) => {
+    const li = (locIndexMap[a['Location']] ?? 99) - (locIndexMap[b['Location']] ?? 99);
+    if (li !== 0) return li;
+    return String(a['Item Code']).localeCompare(String(b['Item Code']));
+  });
+
+  await sleep(150);
+  showProgress(80, 'Building Excel file...');
+
+  // Build XLSX
+  const wb = XLSX.utils.book_new();
+  const wsData = [
+    ['Item Code','Item Name','Barcode Value','DESIGNNO','STYLE','COLOR','POLISH','SIZE','BRAND','DUMMY7','DUMMY8','Location','Current Qty','Pur price','MRP'],
+    ...out.map(r => [
+      r['Item Code'], r['Item Name'], r['Barcode Value'],
+      r['DESIGNNO'],  r['STYLE'],     r['COLOR'],
+      r['POLISH'],    r['SIZE'],      r['BRAND'],
+      r['DUMMY7'],    r['DUMMY8'],    r['Location'],
+      r['Current Qty'], r['Pur price'], r['MRP']
+    ])
+  ];
+
+  const ws = XLSX.utils.aoa_to_sheet(wsData);
+
+  // Column widths
+  ws['!cols'] = [
+    {wch:10},{wch:32},{wch:16},{wch:12},{wch:12},{wch:14},
+    {wch:9},{wch:9},{wch:10},{wch:12},{wch:12},{wch:14},{wch:12},{wch:10},{wch:10}
+  ];
+
+  // Force barcode column (C) as text
+  for (let i = 2; i <= out.length + 1; i++) {
+    const cell = ws[XLSX.utils.encode_cell({r: i, c: 2})];
+    if (cell) { cell.t = 's'; cell.v = String(cell.v); }
+  }
+
+  XLSX.utils.book_append_sheet(wb, ws, 'Variance report');
+  outputWB = wb;
+
+  await sleep(150);
+  showProgress(100, 'Done!');
+
+  // Location summary
+  const locCounts = {};
+  out.forEach(r => { locCounts[r['Location']] = (locCounts[r['Location']] || 0) + 1; });
+  const totalQty = out.reduce((s,r) => s + r['Current Qty'], 0);
+
+  document.getElementById('resultStats').innerHTML = `
+    <div class="result-stat"><div class="result-stat-val">${out.length.toLocaleString()}</div><div class="result-stat-lbl">Total Rows</div></div>
+    <div class="result-stat"><div class="result-stat-val">${Math.round(totalQty).toLocaleString()}</div><div class="result-stat-lbl">Total Qty</div></div>
+    <div class="result-stat"><div class="result-stat-val">${locOrder.length}</div><div class="result-stat-lbl">Locations</div></div>`;
+
+  document.getElementById('locSummary').innerHTML = locOrder.map(l =>
+    `<span class="loc-pill">${l}: ${locCounts[l] || 0}</span>`
+  ).join('');
+
+  document.getElementById('resultSub').textContent =
+    `Generated on ${new Date().toLocaleString('en-IN', {dateStyle:'medium',timeStyle:'short'})}`;
+
+  document.getElementById('resultBox').classList.add('show');
+  document.getElementById('generateBtn').disabled = false;
+  document.getElementById('progressBar').classList.remove('show');
+  document.getElementById('progressMsg').textContent = '';
+}
+
+function downloadReport() {
+  if (!outputWB) return;
+  const now = new Date();
+  const dateStr = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}`;
+  XLSX.writeFile(outputWB, `Kushals_Variance_Report_${dateStr}.xlsx`);
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+function enableCard(id) {
+  const el = document.getElementById(id);
+  el.style.opacity = '1';
+  el.style.pointerEvents = 'auto';
+}
+function disableCard(id) {
+  const el = document.getElementById(id);
+  el.style.opacity = '0.5';
+  el.style.pointerEvents = 'none';
+}
+function showProgress(pct, msg) {
+  document.getElementById('progressBar').classList.add('show');
+  document.getElementById('progressFill').style.width = pct + '%';
+  document.getElementById('progressMsg').textContent = msg;
+}
+function showError(id, msg) {
+  const el = document.getElementById(id);
+  el.textContent = '⚠ ' + msg;
+  el.classList.add('show');
+}
+function hideError(id) {
+  document.getElementById(id).classList.remove('show');
+}
+function formatSize(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1048576) return (bytes/1024).toFixed(1) + ' KB';
+  return (bytes/1048576).toFixed(1) + ' MB';
+}
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+</script>
+</body>
+</html>

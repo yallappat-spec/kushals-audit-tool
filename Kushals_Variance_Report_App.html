@@ -631,9 +631,19 @@ function autoMapColumns() {
 
   const allCols = { ...REQUIRED_COLS, ...OPTIONAL_COLS };
   Object.entries(allCols).forEach(([field, aliases]) => {
-    // Exact match first, then starts-with fallback (prevents e.g. "regional item name" stealing "item name")
-    let idx = headerLower.findIndex(h => aliases.some(a => h === a));
-    if (idx < 0) idx = headerLower.findIndex(h => aliases.some(a => a.length > 4 && h.startsWith(a)));
+    // Try each alias in order — first exact match wins, then startsWith fallback
+    let idx = -1;
+    for (const a of aliases) {
+      idx = headerLower.findIndex(h => h === a);
+      if (idx >= 0) break;
+    }
+    if (idx < 0) {
+      for (const a of aliases) {
+        if (a.length <= 4) continue;
+        idx = headerLower.findIndex(h => h.startsWith(a));
+        if (idx >= 0) break;
+      }
+    }
     if (idx >= 0) colMap[field] = headers[idx];
   });
 

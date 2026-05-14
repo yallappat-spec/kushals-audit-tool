@@ -733,7 +733,8 @@ async function generateReport() {
     if (!bv || bv === '0' || !lv) continue;
 
     const key = bv + '\x01' + lv;
-    const qty = parseFloat(row[colMap['Current Stock']]) || 0;
+    const parseNum = v => parseFloat(String(v || '').replace(/[₹,\s]/g, '')) || 0;
+    const qty = parseNum(row[colMap['Current Stock']]);
 
     if (!dictRow.has(key)) {
       dictRow.set(key, out.length);
@@ -751,8 +752,8 @@ async function generateReport() {
         'DUMMY8':       (colMap['DUMMY8']   ? row[colMap['DUMMY8']]   : '') || '',
         'Location':     lv,
         'Current Qty':  qty,
-        'Pur price':    parseFloat(row[colMap['Pur Price']]) || 0,
-        'MRP':          parseFloat(row[colMap['MRP']])       || 0,
+        'Pur price':    parseNum(row[colMap['Pur Price']]),
+        'MRP':          parseNum(row[colMap['MRP']]),
       });
     } else {
       out[dictRow.get(key)]['Current Qty'] += qty;

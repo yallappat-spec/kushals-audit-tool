@@ -611,7 +611,7 @@ function onSheetChange() {
   if (!workbook || !sheetName) return;
 
   const ws = workbook.Sheets[sheetName];
-  sheetData = XLSX.utils.sheet_to_json(ws, { defval: '', raw: false });
+  sheetData = XLSX.utils.sheet_to_json(ws, { defval: '', raw: true });
 
   if (!sheetData || sheetData.length === 0) {
     showError('colError', 'This sheet appears to be empty. Please select a different sheet.');

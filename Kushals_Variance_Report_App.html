@@ -527,7 +527,7 @@ const REQUIRED_COLS = {
 };
 const OPTIONAL_COLS = {
   'Item Code':  ['item code','itemcode','item_code'],
-  'Item Name':  ['item name','itemname','item_name','product name','productname','article name','articlename'],
+  'Item Name':  ['item name','itemname','item_name','regional item name','product name','productname','article name','articlename'],
   'DESIGNNO':   ['designno','design no','design_no','design number'],
   'STYLE':      ['style'],
   'COLOR':      ['color','colour'],
@@ -611,7 +611,7 @@ function onSheetChange() {
   if (!workbook || !sheetName) return;
 
   const ws = workbook.Sheets[sheetName];
-  sheetData = XLSX.utils.sheet_to_json(ws, { defval: '', raw: false });
+  sheetData = XLSX.utils.sheet_to_json(ws, { defval: '', raw: true });
 
   if (!sheetData || sheetData.length === 0) {
     showError('colError', 'This sheet appears to be empty. Please select a different sheet.');
@@ -733,7 +733,15 @@ async function generateReport() {
     if (!bv || bv === '0' || !lv) continue;
 
     const key = bv + '\x01' + lv;
-    const qty = parseFloat(row[colMap['Current Stock']]) || 0;
+    const parseNum = v => {
+      if (typeof v === 'number') return v;
+      let s = String(v || '').trim().replace(/[₹\s]/g, '');
+      // European thousands separator: "1.000" or "1.000.000" → strip periods
+      if (/^\d{1,3}(\.\d{3})+$/.test(s)) s = s.replace(/\./g, '');
+      else s = s.replace(/,/g, ''); // strip regular commas
+      return parseFloat(s) || 0;
+    };
+    const qty = parseNum(row[colMap['Current Stock']]);
 
     if (!dictRow.has(key)) {
       dictRow.set(key, out.length);
@@ -751,8 +759,8 @@ async function generateReport() {
         'DUMMY8':       (colMap['DUMMY8']   ? row[colMap['DUMMY8']]   : '') || '',
         'Location':     lv,
         'Current Qty':  qty,
-        'Pur price':    parseFloat(row[colMap['Pur Price']]) || 0,
-        'MRP':          parseFloat(row[colMap['MRP']])       || 0,
+        'Pur price':    parseNum(row[colMap['Pur Price']]),
+        'MRP':          parseNum(row[colMap['MRP']]),
       });
     } else {
       out[dictRow.get(key)]['Current Qty'] += qty;

@@ -1182,7 +1182,7 @@ async function generateDifferenceReport() {
     const key     = normBC(r['Barcode Value']);
     const physQty = physMap.get(key) || 0;
     if (physQty > 0) physMap.delete(key); // consume so it won't match a second system row
-    return { ...r, 'Physical Qty': physQty, 'Difference Qty': r['System Qty'] - physQty };
+    return { ...r, 'Physical Qty': physQty, 'Difference Qty': physQty - r['System Qty'] };
   });
 
   // Remaining physMap entries = barcodes scanned but NOT in system → error file

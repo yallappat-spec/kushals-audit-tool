@@ -580,6 +580,9 @@
           <button class="btn-download" onclick="downloadDifferenceReport()">
             ⬇ Download Difference Report (.xlsx)
           </button>
+          <button class="btn-download" id="errorDownloadBtn" onclick="downloadErrorReport()"
+            style="display:none; margin-top:0.6rem; background:var(--red); gap:0.5rem;">
+          </button>
         </div>
 
       </div>
@@ -980,6 +983,7 @@ let physWorkbook  = null;
 let physSheetData = null;
 let physHeaders   = [];
 let physColMap    = {};
+let errorOutputWB = null;
 
 const PHYS_REQUIRED_COLS = {
   'Barcode Value': ['barcode value','barcode','barcodevalue'],
@@ -1032,7 +1036,8 @@ function handlePhysFile(file) {
 }
 
 function clearPhysFile() {
-  physWorkbook = null; physSheetData = null; physHeaders = []; physColMap = {}; finalOutputWB = null;
+  physWorkbook = null; physSheetData = null; physHeaders = []; physColMap = {}; finalOutputWB = null; errorOutputWB = null;
+  document.getElementById('errorDownloadBtn').style.display = 'none';
   physFileInput.value = '';
   document.getElementById('physFileInfo').classList.remove('show');
   physUploadZone.classList.remove('upload-loaded');
@@ -1177,20 +1182,18 @@ async function generateDifferenceReport() {
     return { ...r, 'Physical Qty': physQty, 'Difference Qty': r['System Qty'] - physQty };
   });
 
-  // Any remaining physical entries not in system → append with System Qty = 0
-  physMap.forEach((physQty, key) => {
-    const [bv, lv] = key.split('\x01');
-    finalOut.push({
-      'Item Code': '', 'Item Name': '', 'Barcode Value': bv,
-      'DESIGNNO': '', 'STYLE': '', 'COLOR': '', 'POLISH': '', 'SIZE': '', 'BRAND': '', 'DUMMY7': '', 'DUMMY8': '',
-      'Location': lv, 'System Qty': 0, 'Physical Qty': physQty, 'Difference Qty': 0 - physQty,
-      'Pur price': 0, 'MRP': 0,
-    });
+  // Remaining physMap keys = scanned barcodes NOT found in system → separate error file
+  const unmatchedKeys = new Set(physMap.keys());
+  const errorRows = physSheetData.filter(row => {
+    const bv = String(row[physColMap['Barcode Value']] || '').trim();
+    const lv = String(row[physColMap['Location']]      || '').trim();
+    return bv && lv && unmatchedKeys.has(bv + '\x01' + lv);
   });
 
   await sleep(150);
-  showPhysProgress(85, 'Building Excel file...');
+  showPhysProgress(85, 'Building Excel files...');
 
+  // ── Main difference report ──
   const wb = XLSX.utils.book_new();
   const wsData = [
     ['Item Code','Item Name','Barcode Value','DESIGNNO','STYLE','COLOR','POLISH','SIZE','BRAND','DUMMY7','DUMMY8','Location','System Qty','Physical Qty','Difference Qty','Pur price','MRP'],
@@ -1210,15 +1213,36 @@ async function generateDifferenceReport() {
     {wch:9},{wch:9},{wch:10},{wch:12},{wch:12},{wch:14},
     {wch:11},{wch:12},{wch:14},{wch:10},{wch:10}
   ];
-
-  // Force barcode column (C) as text
   for (let i = 2; i <= finalOut.length + 1; i++) {
     const cell = ws[XLSX.utils.encode_cell({r: i, c: 2})];
     if (cell) { cell.t = 's'; cell.v = String(cell.v); }
   }
-
   XLSX.utils.book_append_sheet(wb, ws, 'Variance Report');
   finalOutputWB = wb;
+
+  // ── Error report: barcodes not in system ──
+  errorOutputWB = null;
+  if (errorRows.length > 0) {
+    const ewb = XLSX.utils.book_new();
+    const errorWsData = [
+      [...physHeaders, 'Error Note'],
+      ...errorRows.map(row => [
+        ...physHeaders.map(h => row[h] ?? ''),
+        'Barcode + Location not found in System Stock'
+      ])
+    ];
+    const ews = XLSX.utils.aoa_to_sheet(errorWsData);
+    // Force barcode column as text in error sheet
+    const bcIdx = physHeaders.findIndex(h => h === physColMap['Barcode Value']);
+    if (bcIdx >= 0) {
+      for (let i = 2; i <= errorRows.length + 1; i++) {
+        const cell = ews[XLSX.utils.encode_cell({r: i, c: bcIdx})];
+        if (cell) { cell.t = 's'; cell.v = String(cell.v); }
+      }
+    }
+    XLSX.utils.book_append_sheet(ewb, ews, 'Not In System');
+    errorOutputWB = ewb;
+  }
 
   await sleep(150);
   showPhysProgress(100, 'Done!');
@@ -1232,8 +1256,16 @@ async function generateDifferenceReport() {
     <div class="result-stat"><div class="result-stat-val">${matched.toLocaleString()}</div><div class="result-stat-lbl">Physically Matched</div></div>
     <div class="result-stat"><div class="result-stat-val">${withDiff.toLocaleString()}</div><div class="result-stat-lbl">With Difference</div></div>`;
 
+  const errorBtn = document.getElementById('errorDownloadBtn');
+  if (errorRows.length > 0) {
+    errorBtn.textContent = `⚠ Download Error Report — ${errorRows.length.toLocaleString()} Barcodes Not in System (.xlsx)`;
+    errorBtn.style.display = 'flex';
+  } else {
+    errorBtn.style.display = 'none';
+  }
+
   document.getElementById('physResultSub').textContent =
-    `Generated on ${new Date().toLocaleString('en-IN', {dateStyle:'medium',timeStyle:'short'})} · ${notScanned} rows not scanned`;
+    `Generated on ${new Date().toLocaleString('en-IN', {dateStyle:'medium',timeStyle:'short'})} · ${notScanned} rows not scanned · ${errorRows.length} not in system`;
 
   document.getElementById('physResultBox').classList.add('show');
   document.getElementById('physGenerateBtn').disabled = false;
@@ -1246,6 +1278,13 @@ function downloadDifferenceReport() {
   const now = new Date();
   const dateStr = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}`;
   XLSX.writeFile(finalOutputWB, `Kushals_Difference_Report_${dateStr}.xlsx`);
+}
+
+function downloadErrorReport() {
+  if (!errorOutputWB) return;
+  const now = new Date();
+  const dateStr = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}`;
+  XLSX.writeFile(errorOutputWB, `Kushals_Error_NotInSystem_${dateStr}.xlsx`);
 }
 
 function showPhysProgress(pct, msg) {

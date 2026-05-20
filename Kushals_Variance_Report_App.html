@@ -505,6 +505,86 @@
       </div>
     </div>
 
+    <!-- STEP 4: PHYSICAL SCAN -->
+    <div class="step-card" id="step4Card" style="opacity:0.5; pointer-events:none;">
+      <div class="step-header">
+        <div class="step-num">4</div>
+        <div>
+          <div class="step-title">Upload Physical Scan &amp; Get Difference</div>
+          <div class="step-desc">Upload physical count file → get System Qty vs Physical Qty difference</div>
+        </div>
+      </div>
+      <div class="step-body">
+
+        <div class="upload-zone" id="physUploadZone">
+          <input type="file" id="physFileInput" accept=".xlsx,.xls" />
+          <div class="upload-icon">📋</div>
+          <div class="upload-text">Click to browse or drag &amp; drop physical scan file</div>
+          <div class="upload-hint">Supported: .xlsx, .xls — Physical barcode scan with location &amp; qty</div>
+        </div>
+        <div class="file-info" id="physFileInfo">
+          <span>✅</span>
+          <span class="file-info-name" id="physFileName">—</span>
+          <span class="file-info-size" id="physFileSize">—</span>
+          <button class="btn-clear" onclick="clearPhysFile()" title="Remove file">✕</button>
+        </div>
+
+        <div class="form-group" id="physSheetGroup" style="display:none; margin-top:1rem;">
+          <label class="form-label">Select Sheet</label>
+          <select class="form-select" id="physSheetSelect" onchange="onPhysSheetChange()">
+            <option>— Upload a file first —</option>
+          </select>
+        </div>
+
+        <div class="form-group" id="physColMapSection" style="display:none">
+          <label class="form-label">Column Mapping <span style="color:var(--slate);font-weight:400;font-size:0.78rem;">— auto-detected from headers</span></label>
+          <div class="col-mapping" id="physColMapping"></div>
+          <div class="error-box" id="physColError"></div>
+        </div>
+
+        <div id="physPreviewSection" style="display:none">
+          <label class="form-label" style="margin-top:1rem;">Data Preview <span style="color:var(--slate);font-weight:400;font-size:0.78rem;">— first 5 rows</span></label>
+          <div class="stats-row" id="physStatsRow"></div>
+          <div class="preview-wrap">
+            <table class="preview-table" id="physPreviewTable"></table>
+            <div class="preview-more" id="physPreviewMore"></div>
+          </div>
+        </div>
+
+        <div class="info-box" id="physInfoBox" style="display:none">
+          <strong>Logic applied:</strong> Physical scan is pivoted by <strong>Barcode Value + Location</strong> (quantities summed).
+          <strong>Difference Qty = System Qty − Physical Qty.</strong>
+          Items not physically scanned will show Physical Qty = 0.
+        </div>
+
+        <div style="margin-top:1rem;">
+          <button class="btn-generate" id="physGenerateBtn" onclick="generateDifferenceReport()" disabled>
+            <span>📊</span> Generate Difference Report
+          </button>
+        </div>
+
+        <div class="progress-bar" id="physProgressBar">
+          <div class="progress-fill" id="physProgressFill"></div>
+        </div>
+        <div class="progress-msg" id="physProgressMsg"></div>
+
+        <div class="result-box" id="physResultBox">
+          <div class="result-header">
+            <div class="result-icon">✅</div>
+            <div>
+              <div class="result-title">Difference Report Ready!</div>
+              <div class="result-sub" id="physResultSub">—</div>
+            </div>
+          </div>
+          <div class="result-stats" id="physResultStats"></div>
+          <button class="btn-download" onclick="downloadDifferenceReport()">
+            ⬇ Download Difference Report (.xlsx)
+          </button>
+        </div>
+
+      </div>
+    </div>
+
   </div>
 </main>
 
@@ -517,6 +597,8 @@ let sheetData = null;
 let headers   = [];
 let colMap    = {};
 let outputWB  = null;
+let systemOut = null;
+let finalOutputWB = null;
 
 const STD_LOC_ORDER = ['Damage','DC','Ecom Sales','INTRANSIT','Main Location','Shortage'];
 
@@ -591,6 +673,7 @@ function handleFile(file) {
 
 function clearFile() {
   workbook = null; sheetData = null; headers = []; colMap = {}; outputWB = null;
+  systemOut = null; finalOutputWB = null;
   fileInput.value = '';
   document.getElementById('fileInfo').classList.remove('show');
   uploadZone.classList.remove('upload-loaded');
@@ -604,6 +687,7 @@ function clearFile() {
   document.getElementById('previewSection').style.display = 'none';
   document.getElementById('infoBox').style.display = 'none';
   document.getElementById('resultBox').classList.remove('show');
+  disableCard('step4Card');
 }
 
 function onSheetChange() {
@@ -768,12 +852,12 @@ async function generateReport() {
         'DUMMY7':       (colMap['DUMMY7']   ? row[colMap['DUMMY7']]   : '') || '',
         'DUMMY8':       (colMap['DUMMY8']   ? row[colMap['DUMMY8']]   : '') || '',
         'Location':     lv,
-        'Current Qty':  qty,
+        'System Qty':   qty,
         'Pur price':    parseNum(row[colMap['Pur Price']]),
         'MRP':          parseNum(row[colMap['MRP']]),
       });
     } else {
-      out[dictRow.get(key)]['Current Qty'] += qty;
+      out[dictRow.get(key)]['System Qty'] += qty;
     }
   }
 
@@ -797,13 +881,13 @@ async function generateReport() {
   // Build XLSX
   const wb = XLSX.utils.book_new();
   const wsData = [
-    ['Item Code','Item Name','Barcode Value','DESIGNNO','STYLE','COLOR','POLISH','SIZE','BRAND','DUMMY7','DUMMY8','Location','Current Qty','Pur price','MRP'],
+    ['Item Code','Item Name','Barcode Value','DESIGNNO','STYLE','COLOR','POLISH','SIZE','BRAND','DUMMY7','DUMMY8','Location','System Qty','Pur price','MRP'],
     ...out.map(r => [
       r['Item Code'], r['Item Name'], r['Barcode Value'],
       r['DESIGNNO'],  r['STYLE'],     r['COLOR'],
       r['POLISH'],    r['SIZE'],      r['BRAND'],
       r['DUMMY7'],    r['DUMMY8'],    r['Location'],
-      r['Current Qty'], r['Pur price'], r['MRP']
+      r['System Qty'], r['Pur price'], r['MRP']
     ])
   ];
 
@@ -830,7 +914,7 @@ async function generateReport() {
   // Location summary
   const locCounts = {};
   out.forEach(r => { locCounts[r['Location']] = (locCounts[r['Location']] || 0) + 1; });
-  const totalQty = out.reduce((s,r) => s + r['Current Qty'], 0);
+  const totalQty = out.reduce((s,r) => s + r['System Qty'], 0);
 
   document.getElementById('resultStats').innerHTML = `
     <div class="result-stat"><div class="result-stat-val">${out.length.toLocaleString()}</div><div class="result-stat-lbl">Total Rows</div></div>
@@ -848,6 +932,9 @@ async function generateReport() {
   document.getElementById('generateBtn').disabled = false;
   document.getElementById('progressBar').classList.remove('show');
   document.getElementById('progressMsg').textContent = '';
+
+  systemOut = out;
+  enableCard('step4Card');
 }
 
 function downloadReport() {
@@ -887,6 +974,285 @@ function formatSize(bytes) {
   return (bytes/1048576).toFixed(1) + ' MB';
 }
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+// ─── Physical Scan ────────────────────────────────────────────────────────────
+let physWorkbook  = null;
+let physSheetData = null;
+let physHeaders   = [];
+let physColMap    = {};
+
+const PHYS_REQUIRED_COLS = {
+  'Barcode Value': ['barcode value','barcode','barcodevalue'],
+  'Location':      ['location','loc'],
+  'Physical Qty':  ['physical qty','physicalqty','physical quantity','phyqty','phy qty','qty','quantity','count','scanned qty','physical count'],
+};
+
+const physUploadZone = document.getElementById('physUploadZone');
+const physFileInput  = document.getElementById('physFileInput');
+
+physUploadZone.addEventListener('dragover', e => { e.preventDefault(); physUploadZone.classList.add('drag-over'); });
+physUploadZone.addEventListener('dragleave', () => physUploadZone.classList.remove('drag-over'));
+physUploadZone.addEventListener('drop', e => {
+  e.preventDefault();
+  physUploadZone.classList.remove('drag-over');
+  if (e.dataTransfer.files[0]) handlePhysFile(e.dataTransfer.files[0]);
+});
+physFileInput.addEventListener('change', e => { if (e.target.files[0]) handlePhysFile(e.target.files[0]); });
+
+function handlePhysFile(file) {
+  if (!file.name.match(/\.(xlsx|xls)$/i)) {
+    showError('physColError', 'Please upload an Excel file (.xlsx or .xls)');
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      physWorkbook = XLSX.read(e.target.result, { type: 'array', cellDates: true });
+      document.getElementById('physFileName').textContent = file.name;
+      document.getElementById('physFileSize').textContent = formatSize(file.size);
+      document.getElementById('physFileInfo').classList.add('show');
+      physUploadZone.classList.add('upload-loaded');
+      physUploadZone.querySelector('.upload-icon').textContent = '✅';
+      physUploadZone.querySelector('.upload-text').textContent = 'File loaded successfully';
+
+      const sel = document.getElementById('physSheetSelect');
+      sel.innerHTML = '';
+      physWorkbook.SheetNames.forEach(name => {
+        const opt = document.createElement('option');
+        opt.value = opt.textContent = name;
+        sel.appendChild(opt);
+      });
+      document.getElementById('physSheetGroup').style.display = 'block';
+      onPhysSheetChange();
+    } catch(err) {
+      showError('physColError', 'Could not read file: ' + err.message);
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function clearPhysFile() {
+  physWorkbook = null; physSheetData = null; physHeaders = []; physColMap = {}; finalOutputWB = null;
+  physFileInput.value = '';
+  document.getElementById('physFileInfo').classList.remove('show');
+  physUploadZone.classList.remove('upload-loaded');
+  physUploadZone.querySelector('.upload-icon').textContent = '📋';
+  physUploadZone.querySelector('.upload-text').textContent = 'Click to browse or drag & drop physical scan file';
+  document.getElementById('physSheetGroup').style.display = 'none';
+  document.getElementById('physColMapSection').style.display = 'none';
+  document.getElementById('physPreviewSection').style.display = 'none';
+  document.getElementById('physInfoBox').style.display = 'none';
+  document.getElementById('physResultBox').classList.remove('show');
+  document.getElementById('physGenerateBtn').disabled = true;
+}
+
+function onPhysSheetChange() {
+  const sheetName = document.getElementById('physSheetSelect').value;
+  if (!physWorkbook || !sheetName) return;
+
+  const ws = physWorkbook.Sheets[sheetName];
+  physSheetData = XLSX.utils.sheet_to_json(ws, { defval: '', raw: true });
+
+  if (!physSheetData || physSheetData.length === 0) {
+    showError('physColError', 'This sheet appears to be empty. Please select a different sheet.');
+    return;
+  }
+
+  physHeaders = Object.keys(physSheetData[0]);
+  autoMapPhysColumns();
+  showPhysPreview();
+  document.getElementById('physGenerateBtn').disabled = false;
+}
+
+function autoMapPhysColumns() {
+  physColMap = {};
+  const headerLower = physHeaders.map(h => h.toLowerCase().trim());
+
+  Object.entries(PHYS_REQUIRED_COLS).forEach(([field, aliases]) => {
+    let idx = -1;
+    for (const a of aliases) {
+      idx = headerLower.findIndex(h => h === a);
+      if (idx >= 0) break;
+    }
+    if (idx < 0) {
+      for (const a of aliases) {
+        if (a.length <= 4) continue;
+        idx = headerLower.findIndex(h => h.startsWith(a));
+        if (idx >= 0) break;
+      }
+    }
+    if (idx >= 0) physColMap[field] = physHeaders[idx];
+  });
+
+  const mapDiv = document.getElementById('physColMapping');
+  mapDiv.innerHTML = '';
+  Object.keys(PHYS_REQUIRED_COLS).forEach(field => {
+    const mapped = physColMap[field];
+    const item = document.createElement('div');
+    item.className = 'col-mapping-item';
+    item.innerHTML = `
+      <span class="col-tag required">★ ${field}</span>
+      <select class="form-select" style="font-size:0.8rem;padding:0.4rem 0.6rem;"
+              onchange="physColMap['${field}'] = this.value">
+        ${physHeaders.map(h => `<option value="${h}" ${h === mapped ? 'selected' : ''}>${h}</option>`).join('')}
+      </select>`;
+    mapDiv.appendChild(item);
+  });
+
+  document.getElementById('physColMapSection').style.display = 'block';
+  hideError('physColError');
+}
+
+function showPhysPreview() {
+  const totalRows = physSheetData.length;
+  const barcodeCol = physColMap['Barcode Value'];
+  const locCol     = physColMap['Location'];
+  const uniqBarcodes = barcodeCol ? new Set(physSheetData.map(r => String(r[barcodeCol]).trim())).size : '—';
+  const uniqLocs     = locCol     ? new Set(physSheetData.map(r => String(r[locCol]).trim())).size     : '—';
+
+  document.getElementById('physStatsRow').innerHTML = `
+    <div class="stat-box"><div class="stat-val">${totalRows.toLocaleString()}</div><div class="stat-lbl">Total Rows</div></div>
+    <div class="stat-box orange"><div class="stat-val">${typeof uniqBarcodes === 'number' ? uniqBarcodes.toLocaleString() : uniqBarcodes}</div><div class="stat-lbl">Unique Barcodes</div></div>
+    <div class="stat-box green"><div class="stat-val">${typeof uniqLocs === 'number' ? uniqLocs.toLocaleString() : uniqLocs}</div><div class="stat-lbl">Locations</div></div>
+    <div class="stat-box"><div class="stat-val">${physHeaders.length}</div><div class="stat-lbl">Columns</div></div>`;
+
+  const previewCols = ['Barcode Value','Location','Physical Qty'].filter(f => physColMap[f]);
+  const table = document.getElementById('physPreviewTable');
+  table.innerHTML = `<tr>${previewCols.map(c => `<th>${c}</th>`).join('')}</tr>` +
+    physSheetData.slice(0, 5).map(row =>
+      `<tr>${previewCols.map(c => `<td>${row[physColMap[c]] || ''}</td>`).join('')}</tr>`
+    ).join('');
+
+  document.getElementById('physPreviewMore').textContent = totalRows > 5 ? `... and ${(totalRows-5).toLocaleString()} more rows` : '';
+  document.getElementById('physPreviewSection').style.display = 'block';
+  document.getElementById('physInfoBox').style.display = 'block';
+}
+
+async function generateDifferenceReport() {
+  const missing = Object.keys(PHYS_REQUIRED_COLS).filter(f => !physColMap[f]);
+  if (missing.length) {
+    showError('physColError', `Required columns not mapped: ${missing.join(', ')}`);
+    return;
+  }
+  if (!systemOut || systemOut.length === 0) {
+    showError('physColError', 'Please generate the system stock report first (Step 3).');
+    return;
+  }
+
+  hideError('physColError');
+  document.getElementById('physGenerateBtn').disabled = true;
+  document.getElementById('physResultBox').classList.remove('show');
+  showPhysProgress(10, 'Reading physical scan data...');
+
+  await sleep(200);
+  showPhysProgress(35, 'Pivoting physical quantities by Barcode + Location...');
+
+  const parseNum = v => {
+    if (typeof v === 'number') return v;
+    let s = String(v || '').trim().replace(/[₹\s]/g, '');
+    if (/^\d{1,3}(\.\d{3})+$/.test(s)) s = s.replace(/\./g, '');
+    else s = s.replace(/,/g, '');
+    return parseFloat(s) || 0;
+  };
+
+  // Build physical map: barcode+'\x01'+location → summed qty
+  const physMap = new Map();
+  for (const row of physSheetData) {
+    const bv  = String(row[physColMap['Barcode Value']] || '').trim();
+    const lv  = String(row[physColMap['Location']]      || '').trim();
+    if (!bv || bv === '0' || !lv) continue;
+    const qty = parseNum(row[physColMap['Physical Qty']]);
+    const key = bv + '\x01' + lv;
+    physMap.set(key, (physMap.get(key) || 0) + qty);
+  }
+
+  await sleep(200);
+  showPhysProgress(65, 'Calculating differences...');
+
+  // Merge: system rows get physical qty matched by barcode + location
+  const finalOut = systemOut.map(r => {
+    const key     = String(r['Barcode Value']).trim() + '\x01' + String(r['Location']).trim();
+    const physQty = physMap.get(key) || 0;
+    physMap.delete(key); // mark as consumed
+    return { ...r, 'Physical Qty': physQty, 'Difference Qty': r['System Qty'] - physQty };
+  });
+
+  // Any remaining physical entries not in system → append with System Qty = 0
+  physMap.forEach((physQty, key) => {
+    const [bv, lv] = key.split('\x01');
+    finalOut.push({
+      'Item Code': '', 'Item Name': '', 'Barcode Value': bv,
+      'DESIGNNO': '', 'STYLE': '', 'COLOR': '', 'POLISH': '', 'SIZE': '', 'BRAND': '', 'DUMMY7': '', 'DUMMY8': '',
+      'Location': lv, 'System Qty': 0, 'Physical Qty': physQty, 'Difference Qty': 0 - physQty,
+      'Pur price': 0, 'MRP': 0,
+    });
+  });
+
+  await sleep(150);
+  showPhysProgress(85, 'Building Excel file...');
+
+  const wb = XLSX.utils.book_new();
+  const wsData = [
+    ['Item Code','Item Name','Barcode Value','DESIGNNO','STYLE','COLOR','POLISH','SIZE','BRAND','DUMMY7','DUMMY8','Location','System Qty','Physical Qty','Difference Qty','Pur price','MRP'],
+    ...finalOut.map(r => [
+      r['Item Code'], r['Item Name'], r['Barcode Value'],
+      r['DESIGNNO'],  r['STYLE'],     r['COLOR'],
+      r['POLISH'],    r['SIZE'],      r['BRAND'],
+      r['DUMMY7'],    r['DUMMY8'],    r['Location'],
+      r['System Qty'], r['Physical Qty'], r['Difference Qty'],
+      r['Pur price'],  r['MRP']
+    ])
+  ];
+
+  const ws = XLSX.utils.aoa_to_sheet(wsData);
+  ws['!cols'] = [
+    {wch:10},{wch:32},{wch:16},{wch:12},{wch:12},{wch:14},
+    {wch:9},{wch:9},{wch:10},{wch:12},{wch:12},{wch:14},
+    {wch:11},{wch:12},{wch:14},{wch:10},{wch:10}
+  ];
+
+  // Force barcode column (C) as text
+  for (let i = 2; i <= finalOut.length + 1; i++) {
+    const cell = ws[XLSX.utils.encode_cell({r: i, c: 2})];
+    if (cell) { cell.t = 's'; cell.v = String(cell.v); }
+  }
+
+  XLSX.utils.book_append_sheet(wb, ws, 'Variance Report');
+  finalOutputWB = wb;
+
+  await sleep(150);
+  showPhysProgress(100, 'Done!');
+
+  const matched    = finalOut.filter(r => r['Physical Qty'] > 0).length;
+  const withDiff   = finalOut.filter(r => r['Difference Qty'] !== 0).length;
+  const notScanned = finalOut.filter(r => r['System Qty'] > 0 && r['Physical Qty'] === 0).length;
+
+  document.getElementById('physResultStats').innerHTML = `
+    <div class="result-stat"><div class="result-stat-val">${finalOut.length.toLocaleString()}</div><div class="result-stat-lbl">Total Rows</div></div>
+    <div class="result-stat"><div class="result-stat-val">${matched.toLocaleString()}</div><div class="result-stat-lbl">Physically Matched</div></div>
+    <div class="result-stat"><div class="result-stat-val">${withDiff.toLocaleString()}</div><div class="result-stat-lbl">With Difference</div></div>`;
+
+  document.getElementById('physResultSub').textContent =
+    `Generated on ${new Date().toLocaleString('en-IN', {dateStyle:'medium',timeStyle:'short'})} · ${notScanned} rows not scanned`;
+
+  document.getElementById('physResultBox').classList.add('show');
+  document.getElementById('physGenerateBtn').disabled = false;
+  document.getElementById('physProgressBar').classList.remove('show');
+  document.getElementById('physProgressMsg').textContent = '';
+}
+
+function downloadDifferenceReport() {
+  if (!finalOutputWB) return;
+  const now = new Date();
+  const dateStr = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}`;
+  XLSX.writeFile(finalOutputWB, `Kushals_Difference_Report_${dateStr}.xlsx`);
+}
+
+function showPhysProgress(pct, msg) {
+  document.getElementById('physProgressBar').classList.add('show');
+  document.getElementById('physProgressFill').style.width = pct + '%';
+  document.getElementById('physProgressMsg').textContent = msg;
+}
 </script>
 </body>
 </html>

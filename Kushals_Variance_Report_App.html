@@ -1160,40 +1160,36 @@ async function generateDifferenceReport() {
     return parseFloat(s) || 0;
   };
 
-  // Normalize barcode for cross-file matching: strip leading zeros so
-  // "0000093022634" and "93022634" resolve to the same key
+  // Normalize barcode: strip leading zeros so "0000093022634" == "93022634"
   const normBC = s => { const t = String(s || '').trim(); return t.replace(/^0+/, '') || t; };
-  // Normalize location: lowercase + collapse spaces
-  const normLoc = s => String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
 
-  // Build physical map: normBarcode+'\x01'+normLocation → summed qty
+  // Build physical map: normBarcode → summed qty
+  // Match by barcode only — location names often differ between system and scan files
   const physMap = new Map();
   for (const row of physSheetData) {
     const bv  = String(row[physColMap['Barcode Value']] || '').trim();
-    const lv  = String(row[physColMap['Location']]      || '').trim();
-    if (!bv || bv === '0' || !lv) continue;
+    if (!bv || bv === '0') continue;
     const qty = parseNum(row[physColMap['Physical Qty']]);
-    const key = normBC(bv) + '\x01' + normLoc(lv);
+    const key = normBC(bv);
     physMap.set(key, (physMap.get(key) || 0) + qty);
   }
 
   await sleep(200);
   showPhysProgress(65, 'Calculating differences...');
 
-  // Merge: system rows get physical qty matched by normalised barcode + location
+  // Merge: match each system row by barcode; location stays from system stock
   const finalOut = systemOut.map(r => {
-    const key     = normBC(r['Barcode Value']) + '\x01' + normLoc(r['Location']);
+    const key     = normBC(r['Barcode Value']);
     const physQty = physMap.get(key) || 0;
-    physMap.delete(key); // mark as consumed
+    if (physQty > 0) physMap.delete(key); // consume so it won't match a second system row
     return { ...r, 'Physical Qty': physQty, 'Difference Qty': r['System Qty'] - physQty };
   });
 
-  // Remaining physMap keys = scanned barcodes NOT found in system → separate error file
-  const unmatchedKeys = new Set(physMap.keys());
+  // Remaining physMap entries = barcodes scanned but NOT in system → error file
+  const unmatchedBCs = new Set(physMap.keys());
   const errorRows = physSheetData.filter(row => {
     const bv = String(row[physColMap['Barcode Value']] || '').trim();
-    const lv = String(row[physColMap['Location']]      || '').trim();
-    return bv && lv && unmatchedKeys.has(normBC(bv) + '\x01' + normLoc(lv));
+    return bv && unmatchedBCs.has(normBC(bv));
   });
 
   await sleep(150);

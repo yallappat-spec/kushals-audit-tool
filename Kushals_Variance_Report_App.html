@@ -553,7 +553,7 @@
 
         <div class="info-box" id="physInfoBox" style="display:none">
           <strong>Logic applied:</strong> Physical scan is pivoted by <strong>Barcode Value + Location</strong> (quantities summed).
-          <strong>Difference Qty = System Qty − Physical Qty.</strong>
+          <strong>Difference Qty = Physical Qty − System Qty.</strong>
           Items not physically scanned will show Physical Qty = 0.
         </div>
 
@@ -1169,8 +1169,9 @@ async function generateDifferenceReport() {
   for (const row of physSheetData) {
     const bv  = String(row[physColMap['Barcode Value']] || '').trim();
     if (!bv || bv === '0') continue;
-    const qty = parseNum(row[physColMap['Physical Qty']]);
-    const key = normBC(bv);
+    const rawQty = parseNum(row[physColMap['Physical Qty']]);
+    const qty    = rawQty > 0 ? rawQty : 1; // each scan row = 1 piece if Qty is blank/zero
+    const key    = normBC(bv);
     physMap.set(key, (physMap.get(key) || 0) + qty);
   }
 

@@ -1161,36 +1161,39 @@ async function generateDifferenceReport() {
   };
 
   // Normalize barcode: strip leading zeros so "0000093022634" == "93022634"
-  const normBC = s => { const t = String(s || '').trim(); return t.replace(/^0+/, '') || t; };
+  const normBC  = s => { const t = String(s || '').trim(); return t.replace(/^0+/, '') || t; };
+  // Normalize location: lowercase + trim for case-insensitive matching
+  const normLoc = s => String(s || '').trim().toLowerCase();
 
-  // Build physical map: normBarcode → summed qty
-  // Match by barcode only — location names often differ between system and scan files
+  // Build physical map: normBarcode + '\x01' + normLocation → summed qty
   const physMap = new Map();
   for (const row of physSheetData) {
-    const bv  = String(row[physColMap['Barcode Value']] || '').trim();
-    if (!bv || bv === '0') continue;
+    const bv = String(row[physColMap['Barcode Value']] || '').trim();
+    const lv = String(row[physColMap['Location']]      || '').trim();
+    if (!bv || bv === '0' || !lv) continue;
     const rawQty = parseNum(row[physColMap['Physical Qty']]);
-    const qty    = rawQty > 0 ? rawQty : 1; // each scan row = 1 piece if Qty is blank/zero
-    const key    = normBC(bv);
+    const qty    = rawQty > 0 ? rawQty : 1; // each scan row = 1 piece if Qty blank/zero
+    const key    = normBC(bv) + '\x01' + normLoc(lv);
     physMap.set(key, (physMap.get(key) || 0) + qty);
   }
 
   await sleep(200);
   showPhysProgress(65, 'Calculating differences...');
 
-  // Merge: match each system row by barcode; location stays from system stock
+  // Merge: match by normalised barcode + normalised location
   const finalOut = systemOut.map(r => {
-    const key     = normBC(r['Barcode Value']);
+    const key     = normBC(r['Barcode Value']) + '\x01' + normLoc(r['Location']);
     const physQty = physMap.get(key) || 0;
-    if (physQty > 0) physMap.delete(key); // consume so it won't match a second system row
+    if (physQty > 0) physMap.delete(key);
     return { ...r, 'Physical Qty': physQty, 'Difference Qty': physQty - r['System Qty'] };
   });
 
-  // Remaining physMap entries = barcodes scanned but NOT in system → error file
-  const unmatchedBCs = new Set(physMap.keys());
+  // Remaining physMap entries = barcodes scanned but NOT found in system → error file
+  const unmatchedKeys = new Set(physMap.keys());
   const errorRows = physSheetData.filter(row => {
     const bv = String(row[physColMap['Barcode Value']] || '').trim();
-    return bv && unmatchedBCs.has(normBC(bv));
+    const lv = String(row[physColMap['Location']]      || '').trim();
+    return bv && lv && unmatchedKeys.has(normBC(bv) + '\x01' + normLoc(lv));
   });
 
   await sleep(150);

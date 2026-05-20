@@ -1160,23 +1160,29 @@ async function generateDifferenceReport() {
     return parseFloat(s) || 0;
   };
 
-  // Build physical map: barcode+'\x01'+location → summed qty
+  // Normalize barcode for cross-file matching: strip leading zeros so
+  // "0000093022634" and "93022634" resolve to the same key
+  const normBC = s => { const t = String(s || '').trim(); return t.replace(/^0+/, '') || t; };
+  // Normalize location: lowercase + collapse spaces
+  const normLoc = s => String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
+
+  // Build physical map: normBarcode+'\x01'+normLocation → summed qty
   const physMap = new Map();
   for (const row of physSheetData) {
     const bv  = String(row[physColMap['Barcode Value']] || '').trim();
     const lv  = String(row[physColMap['Location']]      || '').trim();
     if (!bv || bv === '0' || !lv) continue;
     const qty = parseNum(row[physColMap['Physical Qty']]);
-    const key = bv + '\x01' + lv;
+    const key = normBC(bv) + '\x01' + normLoc(lv);
     physMap.set(key, (physMap.get(key) || 0) + qty);
   }
 
   await sleep(200);
   showPhysProgress(65, 'Calculating differences...');
 
-  // Merge: system rows get physical qty matched by barcode + location
+  // Merge: system rows get physical qty matched by normalised barcode + location
   const finalOut = systemOut.map(r => {
-    const key     = String(r['Barcode Value']).trim() + '\x01' + String(r['Location']).trim();
+    const key     = normBC(r['Barcode Value']) + '\x01' + normLoc(r['Location']);
     const physQty = physMap.get(key) || 0;
     physMap.delete(key); // mark as consumed
     return { ...r, 'Physical Qty': physQty, 'Difference Qty': r['System Qty'] - physQty };
@@ -1187,7 +1193,7 @@ async function generateDifferenceReport() {
   const errorRows = physSheetData.filter(row => {
     const bv = String(row[physColMap['Barcode Value']] || '').trim();
     const lv = String(row[physColMap['Location']]      || '').trim();
-    return bv && lv && unmatchedKeys.has(bv + '\x01' + lv);
+    return bv && lv && unmatchedKeys.has(normBC(bv) + '\x01' + normLoc(lv));
   });
 
   await sleep(150);

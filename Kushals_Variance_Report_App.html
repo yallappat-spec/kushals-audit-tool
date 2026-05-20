@@ -553,7 +553,7 @@
 
         <div class="info-box" id="physInfoBox" style="display:none">
           <strong>Logic applied:</strong> Physical scan is pivoted by <strong>Barcode Value + Location</strong> (quantities summed).
-          <strong>Difference Qty = System Qty − Physical Qty.</strong>
+          <strong>Difference Qty = Physical Qty − System Qty.</strong>
           Items not physically scanned will show Physical Qty = 0.
         </div>
 
@@ -1160,34 +1160,37 @@ async function generateDifferenceReport() {
     return parseFloat(s) || 0;
   };
 
-  // Build physical map: barcode+'\x01'+location → summed qty
+  // Normalize barcode: strip leading zeros so "0000093022634" == "93022634"
+  const normBC = s => { const t = String(s || '').trim(); return t.replace(/^0+/, '') || t; };
+
+  // Build physical map: normBarcode → summed qty
+  // Match by barcode only — location names often differ between system and scan files
   const physMap = new Map();
   for (const row of physSheetData) {
     const bv  = String(row[physColMap['Barcode Value']] || '').trim();
-    const lv  = String(row[physColMap['Location']]      || '').trim();
-    if (!bv || bv === '0' || !lv) continue;
-    const qty = parseNum(row[physColMap['Physical Qty']]);
-    const key = bv + '\x01' + lv;
+    if (!bv || bv === '0') continue;
+    const rawQty = parseNum(row[physColMap['Physical Qty']]);
+    const qty    = rawQty > 0 ? rawQty : 1; // each scan row = 1 piece if Qty is blank/zero
+    const key    = normBC(bv);
     physMap.set(key, (physMap.get(key) || 0) + qty);
   }
 
   await sleep(200);
   showPhysProgress(65, 'Calculating differences...');
 
-  // Merge: system rows get physical qty matched by barcode + location
+  // Merge: match each system row by barcode; location stays from system stock
   const finalOut = systemOut.map(r => {
-    const key     = String(r['Barcode Value']).trim() + '\x01' + String(r['Location']).trim();
+    const key     = normBC(r['Barcode Value']);
     const physQty = physMap.get(key) || 0;
-    physMap.delete(key); // mark as consumed
-    return { ...r, 'Physical Qty': physQty, 'Difference Qty': r['System Qty'] - physQty };
+    if (physQty > 0) physMap.delete(key); // consume so it won't match a second system row
+    return { ...r, 'Physical Qty': physQty, 'Difference Qty': physQty - r['System Qty'] };
   });
 
-  // Remaining physMap keys = scanned barcodes NOT found in system → separate error file
-  const unmatchedKeys = new Set(physMap.keys());
+  // Remaining physMap entries = barcodes scanned but NOT in system → error file
+  const unmatchedBCs = new Set(physMap.keys());
   const errorRows = physSheetData.filter(row => {
     const bv = String(row[physColMap['Barcode Value']] || '').trim();
-    const lv = String(row[physColMap['Location']]      || '').trim();
-    return bv && lv && unmatchedKeys.has(bv + '\x01' + lv);
+    return bv && unmatchedBCs.has(normBC(bv));
   });
 
   await sleep(150);

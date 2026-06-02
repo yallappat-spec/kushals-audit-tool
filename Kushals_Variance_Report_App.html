@@ -768,7 +768,8 @@ function handleFile(file) {
   reader.onload = e => {
     try {
       workbook = XLSX.read(e.target.result, { type: 'array', cellDates: true });
-      pendingSystemFile = { name: file.name, size: file.size };
+      pendingSystemFile = { name: file.name, size: file.size, uploadedAt: new Date().toISOString() };
+      currentSession = null;
       document.getElementById('fileName').textContent = file.name;
       document.getElementById('fileSize').textContent = formatSize(file.size);
       document.getElementById('fileInfo').classList.add('show');
@@ -1068,7 +1069,7 @@ async function generateReport() {
     : null;
   currentSession = {
     id:            currentSession?.id || Date.now(),
-    timestamp:     currentSession?.timestamp || new Date().toISOString(),
+    timestamp:     pendingSystemFile?.uploadedAt || new Date().toISOString(),
     systemFile:    pendingSystemFile ? { ...pendingSystemFile, rows: sheetData.length, uniqueBarcodes: uniqBC } : null,
     varianceReport:{ generatedAt: new Date().toISOString(), rows: out.length, totalQty: Math.round(totalQty), locations: locOrder.length },
     physicalScan:  currentSession?.physicalScan   || null,

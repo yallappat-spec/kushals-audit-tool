@@ -375,6 +375,106 @@
     border-top: 1px solid var(--border);
     margin-top: 3rem;
   }
+
+  /* ─── Upload History ─────────────────────────────────────────────────────── */
+  .history-section { margin-top: 2.5rem; }
+  .history-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 1rem;
+  }
+  .history-title {
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: var(--navy-dark);
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .history-count-badge {
+    background: var(--navy);
+    color: #fff;
+    font-size: 0.7rem;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-family: 'DM Mono', monospace;
+  }
+  .btn-clear-history {
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.35rem 0.75rem;
+    font-size: 0.78rem;
+    color: var(--slate);
+    cursor: pointer;
+    font-family: 'DM Sans', sans-serif;
+    transition: all 0.2s;
+  }
+  .btn-clear-history:hover { border-color: var(--red); color: var(--red); }
+  .history-empty {
+    text-align: center;
+    padding: 2rem;
+    color: var(--slate);
+    font-size: 0.85rem;
+    background: #fff;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+  }
+  .history-list { display: flex; flex-direction: column; gap: 0.75rem; }
+  .history-entry {
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 1rem 1.25rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.55rem;
+  }
+  .history-entry-date {
+    font-size: 0.78rem;
+    color: var(--slate);
+    font-family: 'DM Mono', monospace;
+  }
+  .history-file-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.82rem;
+  }
+  .history-file-label {
+    color: var(--slate);
+    width: 100px;
+    flex-shrink: 0;
+    font-size: 0.75rem;
+  }
+  .history-file-name {
+    font-weight: 600;
+    color: var(--navy);
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .history-file-size {
+    color: var(--slate);
+    font-size: 0.72rem;
+    font-family: 'DM Mono', monospace;
+  }
+  .history-badges { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+  .h-badge {
+    padding: 2px 9px;
+    border-radius: 10px;
+    font-size: 0.72rem;
+    font-weight: 500;
+    background: #EEF2FF;
+    color: var(--navy-mid);
+    font-family: 'DM Mono', monospace;
+  }
+  .h-badge.green  { background: var(--green-bg); color: var(--green); }
+  .h-badge.orange { background: #FEF3C7; color: #92400E; }
+  .h-badge.red    { background: var(--red-bg); color: var(--red); }
 </style>
 </head>
 <body>
@@ -589,6 +689,21 @@
     </div>
 
   </div>
+
+  <!-- UPLOAD HISTORY -->
+  <div class="history-section">
+    <div class="history-header">
+      <div class="history-title">
+        Upload History
+        <span class="history-count-badge" id="historyCount">0</span>
+      </div>
+      <button class="btn-clear-history" onclick="clearHistory()">Clear History</button>
+    </div>
+    <div class="history-list" id="historyList">
+      <div class="history-empty">No upload history yet. Generate a report to record a session here.</div>
+    </div>
+  </div>
+
 </main>
 
 <footer>Kushals Fashion Jewellery — Inventory &amp; Operations Audit | Loss Prevention Department</footer>
@@ -602,6 +717,12 @@ let colMap    = {};
 let outputWB  = null;
 let systemOut = null;
 let finalOutputWB = null;
+
+// ─── History state ────────────────────────────────────────────────────────────
+const HISTORY_KEY     = 'kushals_upload_history';
+let currentSession    = null;
+let pendingSystemFile = null;
+let pendingPhysFile   = null;
 
 const STD_LOC_ORDER = ['Damage','DC','Ecom Sales','INTRANSIT','Main Location','Shortage'];
 
@@ -647,6 +768,7 @@ function handleFile(file) {
   reader.onload = e => {
     try {
       workbook = XLSX.read(e.target.result, { type: 'array', cellDates: true });
+      pendingSystemFile = { name: file.name, size: file.size };
       document.getElementById('fileName').textContent = file.name;
       document.getElementById('fileSize').textContent = formatSize(file.size);
       document.getElementById('fileInfo').classList.add('show');
@@ -677,6 +799,7 @@ function handleFile(file) {
 function clearFile() {
   workbook = null; sheetData = null; headers = []; colMap = {}; outputWB = null;
   systemOut = null; finalOutputWB = null;
+  pendingSystemFile = null; currentSession = null;
   fileInput.value = '';
   document.getElementById('fileInfo').classList.remove('show');
   uploadZone.classList.remove('upload-loaded');
@@ -938,6 +1061,20 @@ async function generateReport() {
 
   systemOut = out;
   enableCard('step4Card');
+
+  // Save session to history
+  const uniqBC = colMap['Barcode Value']
+    ? new Set(sheetData.map(r => r[colMap['Barcode Value']])).size
+    : null;
+  currentSession = {
+    id:            currentSession?.id || Date.now(),
+    timestamp:     currentSession?.timestamp || new Date().toISOString(),
+    systemFile:    pendingSystemFile ? { ...pendingSystemFile, rows: sheetData.length, uniqueBarcodes: uniqBC } : null,
+    varianceReport:{ generatedAt: new Date().toISOString(), rows: out.length, totalQty: Math.round(totalQty), locations: locOrder.length },
+    physicalScan:  currentSession?.physicalScan   || null,
+    differenceReport: currentSession?.differenceReport || null,
+  };
+  saveHistoryEntry();
 }
 
 function downloadReport() {
@@ -1012,6 +1149,7 @@ function handlePhysFile(file) {
   reader.onload = e => {
     try {
       physWorkbook = XLSX.read(e.target.result, { type: 'array', cellDates: true });
+      pendingPhysFile = { name: file.name, size: file.size };
       document.getElementById('physFileName').textContent = file.name;
       document.getElementById('physFileSize').textContent = formatSize(file.size);
       document.getElementById('physFileInfo').classList.add('show');
@@ -1277,6 +1415,13 @@ async function generateDifferenceReport() {
   document.getElementById('physGenerateBtn').disabled = false;
   document.getElementById('physProgressBar').classList.remove('show');
   document.getElementById('physProgressMsg').textContent = '';
+
+  // Update history with physical scan and difference report
+  if (currentSession) {
+    currentSession.physicalScan     = pendingPhysFile ? { ...pendingPhysFile, rows: physSheetData.length } : null;
+    currentSession.differenceReport = { generatedAt: new Date().toISOString(), matched, withDiff, notScanned, errorRows: errorRows.length };
+    saveHistoryEntry();
+  }
 }
 
 function downloadDifferenceReport() {
@@ -1298,6 +1443,79 @@ function showPhysProgress(pct, msg) {
   document.getElementById('physProgressFill').style.width = pct + '%';
   document.getElementById('physProgressMsg').textContent = msg;
 }
+
+// ─── Upload History ───────────────────────────────────────────────────────────
+function loadHistory() {
+  try { return JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]'); } catch { return []; }
+}
+
+function saveHistoryEntry() {
+  if (!currentSession) return;
+  const history = loadHistory();
+  const idx = history.findIndex(e => e.id === currentSession.id);
+  if (idx >= 0) history[idx] = currentSession;
+  else { history.unshift(currentSession); if (history.length > 30) history.length = 30; }
+  localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
+  renderHistory();
+}
+
+function clearHistory() {
+  if (!confirm('Clear all upload history? This cannot be undone.')) return;
+  localStorage.removeItem(HISTORY_KEY);
+  currentSession = null;
+  renderHistory();
+}
+
+function renderHistory() {
+  const history = loadHistory();
+  document.getElementById('historyCount').textContent = history.length;
+  const listEl = document.getElementById('historyList');
+
+  if (history.length === 0) {
+    listEl.innerHTML = '<div class="history-empty">No upload history yet. Generate a report to record a session here.</div>';
+    return;
+  }
+
+  listEl.innerHTML = history.map(entry => {
+    const dateStr = new Date(entry.timestamp).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' });
+    const badges = [];
+    if (entry.systemFile) {
+      badges.push(`<span class="h-badge">${entry.systemFile.rows.toLocaleString()} rows</span>`);
+      if (entry.systemFile.uniqueBarcodes != null)
+        badges.push(`<span class="h-badge orange">${entry.systemFile.uniqueBarcodes.toLocaleString()} barcodes</span>`);
+    }
+    if (entry.varianceReport)
+      badges.push(`<span class="h-badge green">Variance ✓ · ${entry.varianceReport.rows.toLocaleString()} rows · ${entry.varianceReport.locations} loc${entry.varianceReport.locations !== 1 ? 's' : ''}</span>`);
+    if (entry.differenceReport) {
+      badges.push(`<span class="h-badge green">Difference ✓ · ${entry.differenceReport.matched.toLocaleString()} matched</span>`);
+      if (entry.differenceReport.withDiff > 0)
+        badges.push(`<span class="h-badge orange">${entry.differenceReport.withDiff.toLocaleString()} with diff</span>`);
+      if (entry.differenceReport.errorRows > 0)
+        badges.push(`<span class="h-badge red">${entry.differenceReport.errorRows.toLocaleString()} not in system</span>`);
+    }
+
+    return `
+      <div class="history-entry">
+        <div class="history-entry-date">${dateStr}</div>
+        <div>
+          <div class="history-file-row">
+            <span class="history-file-label">System Stock</span>
+            <span class="history-file-name">${entry.systemFile?.name || '—'}</span>
+            <span class="history-file-size">${entry.systemFile ? formatSize(entry.systemFile.size) : ''}</span>
+          </div>
+          ${entry.physicalScan ? `
+          <div class="history-file-row" style="margin-top:0.3rem;">
+            <span class="history-file-label">Physical Scan</span>
+            <span class="history-file-name">${entry.physicalScan.name}</span>
+            <span class="history-file-size">${formatSize(entry.physicalScan.size)}</span>
+          </div>` : ''}
+        </div>
+        <div class="history-badges">${badges.join('')}</div>
+      </div>`;
+  }).join('');
+}
+
+renderHistory();
 </script>
 </body>
 </html>

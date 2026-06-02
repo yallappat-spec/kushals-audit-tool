@@ -719,7 +719,8 @@ let systemOut = null;
 let finalOutputWB = null;
 
 // ─── History state ────────────────────────────────────────────────────────────
-const HISTORY_KEY     = 'kushals_upload_history';
+const HISTORY_KEY = 'kushals_upload_history';
+const SHEETS_URL  = 'https://script.google.com/macros/s/AKfycbzqLaGLGFldnNa9ZNc_Q5zuhkgKH1zZoT7KtQacgzS9OPCj7j1XHOPVW5Td8SBqL_ruBQ/exec';
 let currentSession    = null;
 let pendingSystemFile = null;
 let pendingPhysFile   = null;
@@ -768,7 +769,8 @@ function handleFile(file) {
   reader.onload = e => {
     try {
       workbook = XLSX.read(e.target.result, { type: 'array', cellDates: true });
-      pendingSystemFile = { name: file.name, size: file.size };
+      pendingSystemFile = { name: file.name, size: file.size, uploadedAt: new Date().toISOString() };
+      currentSession = null;
       document.getElementById('fileName').textContent = file.name;
       document.getElementById('fileSize').textContent = formatSize(file.size);
       document.getElementById('fileInfo').classList.add('show');
@@ -1068,7 +1070,7 @@ async function generateReport() {
     : null;
   currentSession = {
     id:            currentSession?.id || Date.now(),
-    timestamp:     currentSession?.timestamp || new Date().toISOString(),
+    timestamp:     pendingSystemFile?.uploadedAt || new Date().toISOString(),
     systemFile:    pendingSystemFile ? { ...pendingSystemFile, rows: sheetData.length, uniqueBarcodes: uniqBC } : null,
     varianceReport:{ generatedAt: new Date().toISOString(), rows: out.length, totalQty: Math.round(totalQty), locations: locOrder.length },
     physicalScan:  currentSession?.physicalScan   || null,
@@ -1444,19 +1446,69 @@ function showPhysProgress(pct, msg) {
   document.getElementById('physProgressMsg').textContent = msg;
 }
 
-// ─── Upload History ───────────────────────────────────────────────────────────
-function loadHistory() {
+// ─── Upload History (Google Sheets backed) ────────────────────────────────────
+function sheetsConfigured() {
+  return SHEETS_URL && !SHEETS_URL.includes('YOUR_');
+}
+
+function loadLocalHistory() {
   try { return JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]'); } catch { return []; }
+}
+
+async function fetchRemoteHistory() {
+  if (!sheetsConfigured()) return;
+  try {
+    const resp = await fetch(SHEETS_URL);
+    const rows = await resp.json();
+    const history = rows.map(rowToSession).filter(Boolean);
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
+    renderHistory();
+  } catch(err) {
+    console.warn('Could not fetch history from Google Sheets:', err);
+  }
+}
+
+function rowToSession(r) {
+  if (!r.id) return null;
+  return {
+    id:        r.id,
+    timestamp: r.timestamp,
+    systemFile: r.systemFileName ? {
+      name: r.systemFileName,
+      size: Number(r.systemFileSize) || 0,
+      rows: Number(r.systemFileRows) || 0,
+      uniqueBarcodes: r.uniqueBarcodes !== '' ? Number(r.uniqueBarcodes) : null,
+    } : null,
+    varianceReport: r.varianceRows ? {
+      rows: Number(r.varianceRows), locations: Number(r.varianceLocs),
+      totalQty: Number(r.varianceTotalQty), generatedAt: r.varianceGeneratedAt
+    } : null,
+    physicalScan: r.physFileName ? {
+      name: r.physFileName, size: Number(r.physFileSize) || 0, rows: Number(r.physFileRows) || 0
+    } : null,
+    differenceReport: r.diffGeneratedAt ? {
+      matched: Number(r.matched), withDiff: Number(r.withDiff),
+      notScanned: Number(r.notScanned), errorRows: Number(r.errorRows),
+      generatedAt: r.diffGeneratedAt
+    } : null
+  };
 }
 
 function saveHistoryEntry() {
   if (!currentSession) return;
-  const history = loadHistory();
+  // Update local cache immediately
+  const history = loadLocalHistory();
   const idx = history.findIndex(e => e.id === currentSession.id);
   if (idx >= 0) history[idx] = currentSession;
-  else { history.unshift(currentSession); if (history.length > 30) history.length = 30; }
+  else { history.unshift(currentSession); if (history.length > 100) history.length = 100; }
   localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
   renderHistory();
+
+  // Sync to Google Sheets in the background
+  if (sheetsConfigured()) {
+    const params = new URLSearchParams({ action: 'write', data: JSON.stringify(currentSession) });
+    fetch(SHEETS_URL + '?' + params.toString()).catch(() => {});
+  }
 }
 
 function clearHistory() {
@@ -1464,10 +1516,11 @@ function clearHistory() {
   localStorage.removeItem(HISTORY_KEY);
   currentSession = null;
   renderHistory();
+  if (sheetsConfigured()) fetch(SHEETS_URL + '?action=clear').catch(() => {});
 }
 
 function renderHistory() {
-  const history = loadHistory();
+  const history = loadLocalHistory();
   document.getElementById('historyCount').textContent = history.length;
   const listEl = document.getElementById('historyList');
 
@@ -1515,7 +1568,9 @@ function renderHistory() {
   }).join('');
 }
 
+// Render from local cache immediately, then pull latest from Sheets
 renderHistory();
+fetchRemoteHistory();
 </script>
 </body>
 </html>

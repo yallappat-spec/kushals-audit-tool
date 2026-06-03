@@ -507,7 +507,7 @@
       </div>
       <div class="step-body">
         <div class="form-group">
-          <label class="form-label">Store Name <span style="color:var(--red);font-size:0.75rem;">★ required</span></label>
+          <label class="form-label">Store Name <span style="color:var(--slate);font-weight:400;font-size:0.78rem;">— auto-detected from scan file, or type manually</span></label>
           <input type="text" class="form-input" id="storeNameInput" placeholder="e.g. HSR Layout, Koramangala, Phoenix Mall..." />
         </div>
         <div class="upload-zone" id="uploadZone">
@@ -1210,6 +1210,13 @@ function onPhysSheetChange() {
   }
 
   physHeaders = Object.keys(physSheetData[0]);
+
+  // Auto-detect store name from column B (index 1) of the first data row
+  if (physHeaders.length > 1) {
+    const storeVal = String(physSheetData[0][physHeaders[1]] || '').trim();
+    if (storeVal) pendingPhysFile.storeName = storeVal;
+  }
+
   autoMapPhysColumns();
   showPhysPreview();
   document.getElementById('physGenerateBtn').disabled = false;
@@ -1426,6 +1433,7 @@ async function generateDifferenceReport() {
 
   // Update history with physical scan and difference report
   if (currentSession) {
+    if (pendingPhysFile?.storeName) currentSession.storeName = pendingPhysFile.storeName;
     currentSession.physicalScan     = pendingPhysFile ? { ...pendingPhysFile, rows: physSheetData.length } : null;
     currentSession.differenceReport = { generatedAt: new Date().toISOString(), matched, withDiff, notScanned, errorRows: errorRows.length };
     saveHistoryEntry();

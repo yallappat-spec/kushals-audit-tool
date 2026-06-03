@@ -773,8 +773,7 @@ function handleFile(file) {
   reader.onload = e => {
     try {
       workbook = XLSX.read(e.target.result, { type: 'array', cellDates: true });
-      const storeName = document.getElementById('storeNameInput').value.trim();
-      pendingSystemFile = { name: file.name, size: file.size, uploadedAt: new Date().toISOString(), storeName };
+      pendingSystemFile = { name: file.name, size: file.size, uploadedAt: new Date().toISOString() };
       currentSession = null;
       document.getElementById('fileName').textContent = file.name;
       document.getElementById('fileSize').textContent = formatSize(file.size);
@@ -1077,7 +1076,7 @@ async function generateReport() {
   currentSession = {
     id:            currentSession?.id || Date.now(),
     timestamp:     pendingSystemFile?.uploadedAt || new Date().toISOString(),
-    storeName:     pendingSystemFile?.storeName || '',
+    storeName:     document.getElementById('storeNameInput').value.trim(),
     systemFile:    pendingSystemFile ? { ...pendingSystemFile, rows: sheetData.length, uniqueBarcodes: uniqBC } : null,
     varianceReport:{ generatedAt: new Date().toISOString(), rows: out.length, totalQty: Math.round(totalQty), locations: locOrder.length },
     physicalScan:  currentSession?.physicalScan   || null,

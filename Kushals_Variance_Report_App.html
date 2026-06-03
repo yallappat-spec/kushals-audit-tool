@@ -506,6 +506,10 @@
         </div>
       </div>
       <div class="step-body">
+        <div class="form-group">
+          <label class="form-label">Store Name <span style="color:var(--red);font-size:0.75rem;">★ required</span></label>
+          <input type="text" class="form-input" id="storeNameInput" placeholder="e.g. HSR Layout, Koramangala, Phoenix Mall..." />
+        </div>
         <div class="upload-zone" id="uploadZone">
           <input type="file" id="fileInput" accept=".xlsx,.xls" />
           <div class="upload-icon">📂</div>
@@ -769,7 +773,8 @@ function handleFile(file) {
   reader.onload = e => {
     try {
       workbook = XLSX.read(e.target.result, { type: 'array', cellDates: true });
-      pendingSystemFile = { name: file.name, size: file.size, uploadedAt: new Date().toISOString() };
+      const storeName = document.getElementById('storeNameInput').value.trim();
+      pendingSystemFile = { name: file.name, size: file.size, uploadedAt: new Date().toISOString(), storeName };
       currentSession = null;
       document.getElementById('fileName').textContent = file.name;
       document.getElementById('fileSize').textContent = formatSize(file.size);
@@ -802,6 +807,7 @@ function clearFile() {
   workbook = null; sheetData = null; headers = []; colMap = {}; outputWB = null;
   systemOut = null; finalOutputWB = null;
   pendingSystemFile = null; currentSession = null;
+  document.getElementById('storeNameInput').value = '';
   fileInput.value = '';
   document.getElementById('fileInfo').classList.remove('show');
   uploadZone.classList.remove('upload-loaded');
@@ -1071,6 +1077,7 @@ async function generateReport() {
   currentSession = {
     id:            currentSession?.id || Date.now(),
     timestamp:     pendingSystemFile?.uploadedAt || new Date().toISOString(),
+    storeName:     pendingSystemFile?.storeName || '',
     systemFile:    pendingSystemFile ? { ...pendingSystemFile, rows: sheetData.length, uniqueBarcodes: uniqBC } : null,
     varianceReport:{ generatedAt: new Date().toISOString(), rows: out.length, totalQty: Math.round(totalQty), locations: locOrder.length },
     physicalScan:  currentSession?.physicalScan   || null,
@@ -1473,6 +1480,7 @@ function rowToSession(r) {
   return {
     id:        r.id,
     timestamp: r.timestamp,
+    storeName: r.storeName || '',
     systemFile: r.systemFileName ? {
       name: r.systemFileName,
       size: Number(r.systemFileSize) || 0,
@@ -1549,7 +1557,10 @@ function renderHistory() {
 
     return `
       <div class="history-entry">
-        <div class="history-entry-date">${dateStr}</div>
+        <div style="display:flex;align-items:center;justify-content:space-between;">
+          <div style="font-weight:700;color:var(--navy);font-size:0.95rem;">${entry.storeName || '<span style="color:var(--slate);font-weight:400;">No store name</span>'}</div>
+          <div class="history-entry-date">${dateStr}</div>
+        </div>
         <div>
           <div class="history-file-row">
             <span class="history-file-label">System Stock</span>

@@ -413,6 +413,51 @@
     transition: all 0.2s;
   }
   .btn-clear-history:hover { border-color: var(--red); color: var(--red); }
+  .history-filter-bar {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+    margin-bottom: 1rem;
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 0.6rem 1rem;
+  }
+  .history-filter-bar label {
+    font-size: 0.78rem;
+    color: var(--slate);
+    font-weight: 600;
+  }
+  .history-filter-bar input[type="date"] {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.3rem 0.5rem;
+    font-size: 0.8rem;
+    font-family: 'DM Sans', sans-serif;
+    color: var(--navy);
+    outline: none;
+  }
+  .history-filter-bar input[type="date"]:focus { border-color: var(--navy); }
+  .btn-download-history {
+    background: var(--navy);
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    padding: 0.35rem 0.85rem;
+    font-size: 0.78rem;
+    font-family: 'DM Sans', sans-serif;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s;
+    margin-left: auto;
+  }
+  .btn-download-history:hover { background: var(--navy-dark); }
+  .history-filter-count {
+    font-size: 0.75rem;
+    color: var(--slate);
+    font-family: 'DM Mono', monospace;
+  }
   .history-empty {
     text-align: center;
     padding: 2rem;
@@ -702,6 +747,14 @@
         <span class="history-count-badge" id="historyCount">0</span>
       </div>
       <button class="btn-clear-history" onclick="clearHistory()">Clear History</button>
+    </div>
+    <div class="history-filter-bar">
+      <label for="historyDateFrom">From</label>
+      <input type="date" id="historyDateFrom" onchange="renderHistory()">
+      <label for="historyDateTo">To</label>
+      <input type="date" id="historyDateTo" onchange="renderHistory()">
+      <span class="history-filter-count" id="historyFilterCount"></span>
+      <button class="btn-download-history" onclick="downloadHistoryCSV()">⬇ Download CSV</button>
     </div>
     <div class="history-list" id="historyList">
       <div class="history-empty">No upload history yet. Generate a report to record a session here.</div>
@@ -1534,17 +1587,72 @@ function clearHistory() {
   if (sheetsConfigured()) fetch(SHEETS_URL + '?action=clear').catch(() => {});
 }
 
+function getFilteredHistory() {
+  const history = loadLocalHistory();
+  const fromVal = document.getElementById('historyDateFrom')?.value;
+  const toVal   = document.getElementById('historyDateTo')?.value;
+  if (!fromVal && !toVal) return history;
+  const from = fromVal ? new Date(fromVal + 'T00:00:00') : null;
+  const to   = toVal   ? new Date(toVal   + 'T23:59:59') : null;
+  return history.filter(e => {
+    const t = new Date(e.timestamp);
+    if (from && t < from) return false;
+    if (to   && t > to)   return false;
+    return true;
+  });
+}
+
+function downloadHistoryCSV() {
+  const filtered = getFilteredHistory();
+  if (filtered.length === 0) { alert('No history entries in the selected date range.'); return; }
+  const cols = ['Date/Time','Store Name','System File','System Rows','Unique Barcodes',
+                 'Physical Scan File','Physical Scan Rows',
+                 'Variance Rows','Variance Locations',
+                 'Diff Matched','Diff With Diff','Diff Not Scanned','Diff Not In System'];
+  const rows = filtered.map(e => [
+    new Date(e.timestamp).toLocaleString('en-IN'),
+    e.storeName || '',
+    e.systemFile?.name || '',
+    e.systemFile?.rows ?? '',
+    e.systemFile?.uniqueBarcodes ?? '',
+    e.physicalScan?.name || '',
+    e.physicalScan?.rows ?? '',
+    e.varianceReport?.rows ?? '',
+    e.varianceReport?.locations ?? '',
+    e.differenceReport?.matched ?? '',
+    e.differenceReport?.withDiff ?? '',
+    e.differenceReport?.notScanned ?? '',
+    e.differenceReport?.errorRows ?? '',
+  ].map(v => `"${String(v).replace(/"/g,'""')}"`).join(','));
+  const csv = [cols.join(','), ...rows].join('\r\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  const fromVal = document.getElementById('historyDateFrom')?.value;
+  const toVal   = document.getElementById('historyDateTo')?.value;
+  const suffix = (fromVal || toVal) ? `_${fromVal||'start'}_to_${toVal||'end'}` : '_all';
+  a.download = `kushals_upload_history${suffix}.csv`;
+  a.click();
+}
+
 function renderHistory() {
   const history = loadLocalHistory();
   document.getElementById('historyCount').textContent = history.length;
+  const filtered = getFilteredHistory();
+  const countEl = document.getElementById('historyFilterCount');
+  if (countEl) {
+    const fromVal = document.getElementById('historyDateFrom')?.value;
+    const toVal   = document.getElementById('historyDateTo')?.value;
+    countEl.textContent = (fromVal || toVal) ? `${filtered.length} of ${history.length} shown` : '';
+  }
   const listEl = document.getElementById('historyList');
 
-  if (history.length === 0) {
+  if (filtered.length === 0) {
     listEl.innerHTML = '<div class="history-empty">No upload history yet. Generate a report to record a session here.</div>';
     return;
   }
 
-  listEl.innerHTML = history.map(entry => {
+  listEl.innerHTML = filtered.map(entry => {
     const dateStr = new Date(entry.timestamp).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' });
     const badges = [];
     if (entry.systemFile) {

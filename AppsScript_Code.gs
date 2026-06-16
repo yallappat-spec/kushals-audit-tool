@@ -22,11 +22,15 @@ function doGet(e) {
 }
 
 // ─── POST: save an XLSX file to Google Drive ─────────────────────────────────
-// Sent with Content-Type: text/plain to avoid CORS preflight.
-// Body is a JSON string: { action, sessionId, fileType, data (base64) }
+// Accepts both form POST (e.parameter) and JSON POST (e.postData.contents).
 function doPost(e) {
   try {
-    const params = JSON.parse(e.postData.contents || '{}');
+    let params;
+    if (e.postData?.type === 'application/x-www-form-urlencoded') {
+      params = e.parameter;
+    } else {
+      params = JSON.parse(e.postData?.contents || '{}');
+    }
     if (params.action === 'saveFile') return handleSaveFile(params);
     return jsonResponse({ error: 'Unknown action' });
   } catch(err) {

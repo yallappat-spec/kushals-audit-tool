@@ -712,6 +712,15 @@
           </button>
         </div>
 
+        <!-- Hidden form used to upload XLSX files to Drive without CORS issues -->
+        <iframe name="driveUploadFrame" style="display:none"></iframe>
+        <form id="driveUploadForm" method="POST" target="driveUploadFrame" style="display:none">
+          <input type="hidden" name="action" value="saveFile">
+          <input type="hidden" name="sessionId" id="driveSessionId">
+          <input type="hidden" name="fileType" id="driveFileType">
+          <input type="hidden" name="data" id="driveData">
+        </form>
+
         <div class="progress-bar" id="physProgressBar">
           <div class="progress-fill" id="physProgressFill"></div>
         </div>
@@ -1506,21 +1515,18 @@ function downloadDifferenceReport() {
 }
 
 async function uploadReportToDrive(sessionId, wb, fileType) {
-  try {
-    const b64     = XLSX.write(wb, { bookType: 'xlsx', type: 'base64' });
-    const payload = JSON.stringify({ action: 'saveFile', sessionId, fileType, data: b64 });
-    // no-cors bypasses Apps Script redirect CORS block; response is opaque (unreadable)
-    await fetch(SHEETS_URL, {
-      method: 'POST',
-      mode: 'no-cors',
-      headers: { 'Content-Type': 'text/plain' },
-      body: payload
-    });
-  } catch(e) { console.warn('Drive upload fetch error:', e); }
+  // Submit via hidden form — bypasses CORS restrictions entirely
+  const b64 = XLSX.write(wb, { bookType: 'xlsx', type: 'base64' });
+  const form = document.getElementById('driveUploadForm');
+  form.action = SHEETS_URL;
+  document.getElementById('driveSessionId').value = sessionId;
+  document.getElementById('driveFileType').value  = fileType;
+  document.getElementById('driveData').value       = b64;
+  form.submit();
 
-  // Poll the remote history until the Drive URL appears (up to 60s)
+  // Poll the remote history until the Drive URL appears (up to 90s)
   const urlField = fileType === 'diff' ? 'diffFileUrl' : 'errorFileUrl';
-  for (let i = 0; i < 20; i++) {
+  for (let i = 0; i < 30; i++) {
     await new Promise(r => setTimeout(r, 3000));
     try {
       const resp = await fetch(SHEETS_URL);

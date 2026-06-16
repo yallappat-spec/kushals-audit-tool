@@ -1490,6 +1490,17 @@ async function generateDifferenceReport() {
     currentSession.physicalScan     = pendingPhysFile ? { ...pendingPhysFile, rows: physSheetData.length } : null;
     currentSession.differenceReport = { generatedAt: new Date().toISOString(), matched, withDiff, notScanned, errorRows: errorRows.length };
     saveHistoryEntry();
+    // Cache the actual XLSX files in localStorage keyed by session id
+    try {
+      const diffB64 = XLSX.write(finalOutputWB, { bookType: 'xlsx', type: 'base64' });
+      localStorage.setItem('kushals_diff_report_' + currentSession.id, diffB64);
+    } catch(e) { console.warn('Could not cache difference report:', e); }
+    if (errorOutputWB) {
+      try {
+        const errB64 = XLSX.write(errorOutputWB, { bookType: 'xlsx', type: 'base64' });
+        localStorage.setItem('kushals_err_report_' + currentSession.id, errB64);
+      } catch(e) { console.warn('Could not cache error report:', e); }
+    }
   }
 }
 
@@ -1498,6 +1509,20 @@ function downloadDifferenceReport() {
   const now = new Date();
   const dateStr = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}`;
   XLSX.writeFile(finalOutputWB, `Kushals_Difference_Report_${dateStr}.xlsx`);
+}
+
+function downloadCachedReport(sessionId, type) {
+  const key = type === 'error' ? 'kushals_err_report_' + sessionId : 'kushals_diff_report_' + sessionId;
+  const b64 = localStorage.getItem(key);
+  if (!b64) { alert('Report data not available on this device. Please regenerate the report.'); return; }
+  const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+  const blob = new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = type === 'error'
+    ? `Kushals_Error_Report_${sessionId}.xlsx`
+    : `Kushals_Difference_Report_${sessionId}.xlsx`;
+  a.click();
 }
 
 function downloadErrorReport() {
@@ -1670,6 +1695,21 @@ function renderHistory() {
         badges.push(`<span class="h-badge red">${entry.differenceReport.errorRows.toLocaleString()} not in system</span>`);
     }
 
+    const hasDiff  = entry.differenceReport && !!localStorage.getItem('kushals_diff_report_' + entry.id);
+    const hasErr   = entry.differenceReport?.errorRows > 0 && !!localStorage.getItem('kushals_err_report_' + entry.id);
+    const dlButtons = entry.differenceReport ? `
+      <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-top:0.5rem;">
+        <button onclick="downloadCachedReport('${entry.id}','diff')"
+          style="background:${hasDiff ? 'var(--navy)' : '#e5e7eb'};color:${hasDiff ? '#fff' : 'var(--slate)'};border:none;border-radius:6px;padding:0.3rem 0.75rem;font-size:0.75rem;font-family:'DM Sans',sans-serif;font-weight:600;cursor:pointer;">
+          ⬇ Difference Report (.xlsx)
+        </button>
+        ${entry.differenceReport.errorRows > 0 ? `
+        <button onclick="downloadCachedReport('${entry.id}','error')"
+          style="background:${hasErr ? '#FEF3C7' : '#e5e7eb'};color:${hasErr ? '#92400E' : 'var(--slate)'};border:none;border-radius:6px;padding:0.3rem 0.75rem;font-size:0.75rem;font-family:'DM Sans',sans-serif;font-weight:600;cursor:pointer;">
+          ⚠ Error Report (.xlsx)
+        </button>` : ''}
+      </div>` : '';
+
     return `
       <div class="history-entry">
         <div style="display:flex;align-items:center;justify-content:space-between;">
@@ -1690,6 +1730,7 @@ function renderHistory() {
           </div>` : ''}
         </div>
         <div class="history-badges">${badges.join('')}</div>
+        ${dlButtons}
       </div>`;
   }).join('');
 }

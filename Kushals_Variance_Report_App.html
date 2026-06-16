@@ -1490,16 +1490,10 @@ async function generateDifferenceReport() {
     currentSession.physicalScan     = pendingPhysFile ? { ...pendingPhysFile, rows: physSheetData.length } : null;
     currentSession.differenceReport = { generatedAt: new Date().toISOString(), matched, withDiff, notScanned, errorRows: errorRows.length };
     saveHistoryEntry();
-    // Cache the actual XLSX files in localStorage keyed by session id
-    try {
-      const diffB64 = XLSX.write(finalOutputWB, { bookType: 'xlsx', type: 'base64' });
-      localStorage.setItem('kushals_diff_report_' + currentSession.id, diffB64);
-    } catch(e) { console.warn('Could not cache difference report:', e); }
-    if (errorOutputWB) {
-      try {
-        const errB64 = XLSX.write(errorOutputWB, { bookType: 'xlsx', type: 'base64' });
-        localStorage.setItem('kushals_err_report_' + currentSession.id, errB64);
-      } catch(e) { console.warn('Could not cache error report:', e); }
+    // Upload XLSX files to Google Drive for cross-device access
+    if (sheetsConfigured()) {
+      uploadReportToDrive(currentSession.id, finalOutputWB, 'diff');
+      if (errorOutputWB) uploadReportToDrive(currentSession.id, errorOutputWB, 'error');
     }
   }
 }
@@ -1511,18 +1505,29 @@ function downloadDifferenceReport() {
   XLSX.writeFile(finalOutputWB, `Kushals_Difference_Report_${dateStr}.xlsx`);
 }
 
-function downloadCachedReport(sessionId, type) {
-  const key = type === 'error' ? 'kushals_err_report_' + sessionId : 'kushals_diff_report_' + sessionId;
-  const b64 = localStorage.getItem(key);
-  if (!b64) { alert('Report data not available on this device. Please regenerate the report.'); return; }
-  const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
-  const blob = new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = type === 'error'
-    ? `Kushals_Error_Report_${sessionId}.xlsx`
-    : `Kushals_Difference_Report_${sessionId}.xlsx`;
-  a.click();
+async function uploadReportToDrive(sessionId, wb, fileType) {
+  try {
+    const b64 = XLSX.write(wb, { bookType: 'xlsx', type: 'base64' });
+    const body = new URLSearchParams({ action: 'saveFile', sessionId, fileType, data: b64 });
+    const resp = await fetch(SHEETS_URL, { method: 'POST', body });
+    const json = await resp.json();
+    if (json.url) {
+      // Store URL back into session history
+      const history = loadLocalHistory();
+      const entry = history.find(e => e.id === sessionId);
+      if (entry?.differenceReport) {
+        if (fileType === 'diff')  entry.differenceReport.diffFileUrl  = json.url;
+        if (fileType === 'error') entry.differenceReport.errorFileUrl = json.url;
+        localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
+        renderHistory();
+      }
+    }
+  } catch(e) { console.warn('Could not upload report to Drive:', e); }
+}
+
+function downloadHistoryReport(url) {
+  if (!url) { alert('Report not yet uploaded. Please wait a moment and refresh.'); return; }
+  window.open(url, '_blank');
 }
 
 function downloadErrorReport() {
@@ -1582,7 +1587,9 @@ function rowToSession(r) {
     differenceReport: r.diffGeneratedAt ? {
       matched: Number(r.matched), withDiff: Number(r.withDiff),
       notScanned: Number(r.notScanned), errorRows: Number(r.errorRows),
-      generatedAt: r.diffGeneratedAt
+      generatedAt: r.diffGeneratedAt,
+      diffFileUrl:  r.diffFileUrl  || '',
+      errorFileUrl: r.errorFileUrl || '',
     } : null
   };
 }
@@ -1695,17 +1702,19 @@ function renderHistory() {
         badges.push(`<span class="h-badge red">${entry.differenceReport.errorRows.toLocaleString()} not in system</span>`);
     }
 
-    const hasDiff  = entry.differenceReport && !!localStorage.getItem('kushals_diff_report_' + entry.id);
-    const hasErr   = entry.differenceReport?.errorRows > 0 && !!localStorage.getItem('kushals_err_report_' + entry.id);
+    const diffUrl = entry.differenceReport?.diffFileUrl  || '';
+    const errUrl  = entry.differenceReport?.errorFileUrl || '';
     const dlButtons = entry.differenceReport ? `
       <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-top:0.5rem;">
-        <button onclick="downloadCachedReport('${entry.id}','diff')"
-          style="background:${hasDiff ? 'var(--navy)' : '#e5e7eb'};color:${hasDiff ? '#fff' : 'var(--slate)'};border:none;border-radius:6px;padding:0.3rem 0.75rem;font-size:0.75rem;font-family:'DM Sans',sans-serif;font-weight:600;cursor:pointer;">
+        <button onclick="downloadHistoryReport('${diffUrl}')"
+          style="background:${diffUrl ? 'var(--navy)' : '#e5e7eb'};color:${diffUrl ? '#fff' : 'var(--slate)'};border:none;border-radius:6px;padding:0.3rem 0.75rem;font-size:0.75rem;font-family:'DM Sans',sans-serif;font-weight:600;cursor:${diffUrl ? 'pointer' : 'default'};"
+          title="${diffUrl ? '' : 'Still uploading…'}">
           ⬇ Difference Report (.xlsx)
         </button>
         ${entry.differenceReport.errorRows > 0 ? `
-        <button onclick="downloadCachedReport('${entry.id}','error')"
-          style="background:${hasErr ? '#FEF3C7' : '#e5e7eb'};color:${hasErr ? '#92400E' : 'var(--slate)'};border:none;border-radius:6px;padding:0.3rem 0.75rem;font-size:0.75rem;font-family:'DM Sans',sans-serif;font-weight:600;cursor:pointer;">
+        <button onclick="downloadHistoryReport('${errUrl}')"
+          style="background:${errUrl ? '#FEF3C7' : '#e5e7eb'};color:${errUrl ? '#92400E' : 'var(--slate)'};border:none;border-radius:6px;padding:0.3rem 0.75rem;font-size:0.75rem;font-family:'DM Sans',sans-serif;font-weight:600;cursor:${errUrl ? 'pointer' : 'default'};"
+          title="${errUrl ? '' : 'Still uploading…'}">
           ⚠ Error Report (.xlsx)
         </button>` : ''}
       </div>` : '';

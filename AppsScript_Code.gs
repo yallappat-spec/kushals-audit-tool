@@ -9,25 +9,25 @@
 const SHEET_NAME        = 'UploadHistory';
 const REPORT_FOLDER_ID  = 'YOUR_DRIVE_FOLDER_ID'; // <-- replace this
 
-// ─── GET: return all history rows as JSON ─────────────────────────────────────
+// ─── GET: return history rows, write session, or clear ───────────────────────
 function doGet(e) {
   try {
     const action = e?.parameter?.action;
     if (action === 'clear') return handleClear();
+    if (action === 'write') return handleWrite(e.parameter.data);
     return handleRead();
   } catch(err) {
     return jsonResponse({ error: err.message });
   }
 }
 
-// ─── POST: write session OR save an XLSX file to Drive ───────────────────────
+// ─── POST: save an XLSX file to Google Drive ─────────────────────────────────
+// Sent with Content-Type: text/plain to avoid CORS preflight.
+// Body is a JSON string: { action, sessionId, fileType, data (base64) }
 function doPost(e) {
   try {
-    const params  = e.parameter || {};
-    const action  = params.action;
-
-    if (action === 'saveFile') return handleSaveFile(params);
-    if (action === 'write')    return handleWrite(params.data);
+    const params = JSON.parse(e.postData.contents || '{}');
+    if (params.action === 'saveFile') return handleSaveFile(params);
     return jsonResponse({ error: 'Unknown action' });
   } catch(err) {
     return jsonResponse({ error: err.message });

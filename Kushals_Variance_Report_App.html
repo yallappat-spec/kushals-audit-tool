@@ -1507,31 +1507,42 @@ function downloadDifferenceReport() {
 
 async function uploadReportToDrive(sessionId, wb, fileType) {
   try {
-    const b64  = XLSX.write(wb, { bookType: 'xlsx', type: 'base64' });
+    const b64     = XLSX.write(wb, { bookType: 'xlsx', type: 'base64' });
     const payload = JSON.stringify({ action: 'saveFile', sessionId, fileType, data: b64 });
-    // Use text/plain to avoid CORS preflight on Apps Script
-    const resp = await fetch(SHEETS_URL, {
+    // no-cors bypasses Apps Script redirect CORS block; response is opaque (unreadable)
+    await fetch(SHEETS_URL, {
       method: 'POST',
+      mode: 'no-cors',
       headers: { 'Content-Type': 'text/plain' },
       body: payload
     });
-    const json = await resp.json();
-    if (json.url) {
-      // Store URL back into session history
-      const history = loadLocalHistory();
-      const entry = history.find(e => e.id === sessionId);
-      if (entry?.differenceReport) {
-        if (fileType === 'diff')  entry.differenceReport.diffFileUrl  = json.url;
-        if (fileType === 'error') entry.differenceReport.errorFileUrl = json.url;
-        localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
-        renderHistory();
+  } catch(e) { console.warn('Drive upload fetch error:', e); }
+
+  // Poll the remote history until the Drive URL appears (up to 60s)
+  const urlField = fileType === 'diff' ? 'diffFileUrl' : 'errorFileUrl';
+  for (let i = 0; i < 20; i++) {
+    await new Promise(r => setTimeout(r, 3000));
+    try {
+      const resp = await fetch(SHEETS_URL);
+      const rows = await resp.json();
+      const row  = rows.find(r => r.id === sessionId);
+      const url  = row?.[urlField];
+      if (url) {
+        const history = loadLocalHistory();
+        const entry   = history.find(e => e.id === sessionId);
+        if (entry?.differenceReport) {
+          entry.differenceReport[urlField] = url;
+          localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
+          renderHistory();
+        }
+        return;
       }
-    }
-  } catch(e) { console.warn('Could not upload report to Drive:', e); }
+    } catch(_) {}
+  }
 }
 
 function downloadHistoryReport(url) {
-  if (!url) { alert('Report not yet uploaded. Please wait a moment and refresh.'); return; }
+  if (!url) { alert('Report not yet uploaded. Please wait a moment and try again.'); return; }
   window.open(url, '_blank');
 }
 

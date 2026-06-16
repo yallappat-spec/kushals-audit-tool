@@ -1490,6 +1490,11 @@ async function generateDifferenceReport() {
     currentSession.physicalScan     = pendingPhysFile ? { ...pendingPhysFile, rows: physSheetData.length } : null;
     currentSession.differenceReport = { generatedAt: new Date().toISOString(), matched, withDiff, notScanned, errorRows: errorRows.length };
     saveHistoryEntry();
+    // Upload XLSX files to Google Drive for cross-device access
+    if (sheetsConfigured()) {
+      uploadReportToDrive(currentSession.id, finalOutputWB, 'diff');
+      if (errorOutputWB) uploadReportToDrive(currentSession.id, errorOutputWB, 'error');
+    }
   }
 }
 
@@ -1498,6 +1503,31 @@ function downloadDifferenceReport() {
   const now = new Date();
   const dateStr = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}`;
   XLSX.writeFile(finalOutputWB, `Kushals_Difference_Report_${dateStr}.xlsx`);
+}
+
+async function uploadReportToDrive(sessionId, wb, fileType) {
+  try {
+    const b64 = XLSX.write(wb, { bookType: 'xlsx', type: 'base64' });
+    const body = new URLSearchParams({ action: 'saveFile', sessionId, fileType, data: b64 });
+    const resp = await fetch(SHEETS_URL, { method: 'POST', body });
+    const json = await resp.json();
+    if (json.url) {
+      // Store URL back into session history
+      const history = loadLocalHistory();
+      const entry = history.find(e => e.id === sessionId);
+      if (entry?.differenceReport) {
+        if (fileType === 'diff')  entry.differenceReport.diffFileUrl  = json.url;
+        if (fileType === 'error') entry.differenceReport.errorFileUrl = json.url;
+        localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
+        renderHistory();
+      }
+    }
+  } catch(e) { console.warn('Could not upload report to Drive:', e); }
+}
+
+function downloadHistoryReport(url) {
+  if (!url) { alert('Report not yet uploaded. Please wait a moment and refresh.'); return; }
+  window.open(url, '_blank');
 }
 
 function downloadErrorReport() {
@@ -1557,7 +1587,9 @@ function rowToSession(r) {
     differenceReport: r.diffGeneratedAt ? {
       matched: Number(r.matched), withDiff: Number(r.withDiff),
       notScanned: Number(r.notScanned), errorRows: Number(r.errorRows),
-      generatedAt: r.diffGeneratedAt
+      generatedAt: r.diffGeneratedAt,
+      diffFileUrl:  r.diffFileUrl  || '',
+      errorFileUrl: r.errorFileUrl || '',
     } : null
   };
 }
@@ -1670,6 +1702,23 @@ function renderHistory() {
         badges.push(`<span class="h-badge red">${entry.differenceReport.errorRows.toLocaleString()} not in system</span>`);
     }
 
+    const diffUrl = entry.differenceReport?.diffFileUrl  || '';
+    const errUrl  = entry.differenceReport?.errorFileUrl || '';
+    const dlButtons = entry.differenceReport ? `
+      <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-top:0.5rem;">
+        <button onclick="downloadHistoryReport('${diffUrl}')"
+          style="background:${diffUrl ? 'var(--navy)' : '#e5e7eb'};color:${diffUrl ? '#fff' : 'var(--slate)'};border:none;border-radius:6px;padding:0.3rem 0.75rem;font-size:0.75rem;font-family:'DM Sans',sans-serif;font-weight:600;cursor:${diffUrl ? 'pointer' : 'default'};"
+          title="${diffUrl ? '' : 'Still uploading…'}">
+          ⬇ Difference Report (.xlsx)
+        </button>
+        ${entry.differenceReport.errorRows > 0 ? `
+        <button onclick="downloadHistoryReport('${errUrl}')"
+          style="background:${errUrl ? '#FEF3C7' : '#e5e7eb'};color:${errUrl ? '#92400E' : 'var(--slate)'};border:none;border-radius:6px;padding:0.3rem 0.75rem;font-size:0.75rem;font-family:'DM Sans',sans-serif;font-weight:600;cursor:${errUrl ? 'pointer' : 'default'};"
+          title="${errUrl ? '' : 'Still uploading…'}">
+          ⚠ Error Report (.xlsx)
+        </button>` : ''}
+      </div>` : '';
+
     return `
       <div class="history-entry">
         <div style="display:flex;align-items:center;justify-content:space-between;">
@@ -1690,6 +1739,7 @@ function renderHistory() {
           </div>` : ''}
         </div>
         <div class="history-badges">${badges.join('')}</div>
+        ${dlButtons}
       </div>`;
   }).join('');
 }

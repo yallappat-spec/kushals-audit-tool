@@ -1499,27 +1499,18 @@ async function generateDifferenceReport() {
     currentSession.physicalScan     = pendingPhysFile ? { ...pendingPhysFile, rows: physSheetData.length } : null;
     currentSession.differenceReport = { generatedAt: new Date().toISOString(), matched, withDiff, notScanned, errorRows: errorRows.length };
     saveHistoryEntry();
-    // Upload diff-only XLSX to Drive (only rows with differences — keeps file tiny)
+    // Store diff rows and error rows in Google Sheets for cross-device download
     if (sheetsConfigured()) {
-      const diffRows = finalOut.filter(r => r['Difference Qty'] !== 0);
-      if (diffRows.length > 0) {
-        const diffWB = XLSX.utils.book_new();
-        const diffWsData = [
-          ['Item Code','Item Name','Barcode Value','DESIGNNO','STYLE','COLOR','POLISH','SIZE','BRAND','DUMMY7','DUMMY8','Location','System Qty','Physical Qty','Difference Qty','Pur price','MRP'],
-          ...diffRows.map(r => [
-            r['Item Code'], r['Item Name'], r['Barcode Value'],
-            r['DESIGNNO'],  r['STYLE'],     r['COLOR'],
-            r['POLISH'],    r['SIZE'],      r['BRAND'],
-            r['DUMMY7'],    r['DUMMY8'],    r['Location'],
-            r['System Qty'], r['Physical Qty'], r['Difference Qty'],
-            r['Pur price'],  r['MRP']
-          ])
-        ];
-        const diffWs = XLSX.utils.aoa_to_sheet(diffWsData);
-        XLSX.utils.book_append_sheet(diffWB, diffWs, 'Differences');
-        uploadReportToDrive(currentSession.id, diffWB, 'diff');
+      const DIFF_HEADERS = ['Item Code','Item Name','Barcode Value','DESIGNNO','STYLE','COLOR','POLISH','SIZE','BRAND','DUMMY7','DUMMY8','Location','System Qty','Physical Qty','Difference Qty','Pur price','MRP'];
+      const diffRows = finalOut.filter(r => r['Difference Qty'] !== 0)
+        .map(r => DIFF_HEADERS.map(h => r[h] ?? ''));
+      storeDiffRowsToSheet(currentSession.id, DIFF_HEADERS, diffRows, 'diff');
+
+      if (errorRows.length > 0) {
+        const errHeaders = [...physHeaders, 'Error Note'];
+        const errData = errorRows.map(row => [...physHeaders.map(h => row[h] ?? ''), 'Barcode + Location not found in System Stock']);
+        storeDiffRowsToSheet(currentSession.id, errHeaders, errData, 'error');
       }
-      if (errorOutputWB) uploadReportToDrive(currentSession.id, errorOutputWB, 'error');
     }
   }
 }
@@ -1531,51 +1522,38 @@ function downloadDifferenceReport() {
   XLSX.writeFile(finalOutputWB, `Kushals_Difference_Report_${dateStr}.xlsx`);
 }
 
-async function uploadReportToDrive(sessionId, wb, fileType) {
-  const b64       = XLSX.write(wb, { bookType: 'xlsx', type: 'base64' });
-  const CHUNK     = 4000; // chars per GET request (safe URL length)
-  const chunks    = [];
-  for (let i = 0; i < b64.length; i += CHUNK) chunks.push(b64.slice(i, i + CHUNK));
-
-  // Send chunks in batches of 5 (avoid overwhelming Apps Script)
-  for (let b = 0; b < chunks.length; b += 5) {
-    await Promise.all(chunks.slice(b, b + 5).map((data, j) => {
-      const idx = b + j;
-      const p = new URLSearchParams({ action:'storeChunk', sessionId, fileType, idx, total: chunks.length, data });
-      return fetch(SHEETS_URL + '?' + p).catch(() => {});
-    }));
+async function storeDiffRowsToSheet(sessionId, headers, dataRows, fileType) {
+  if (!dataRows.length) return;
+  const allRows = [headers, ...dataRows];
+  const BATCH   = 8; // rows per request — keeps URL under 3KB
+  for (let i = 0; i < allRows.length; i += BATCH) {
+    const batch = allRows.slice(i, i + BATCH);
+    const p = new URLSearchParams({ action:'storeDiffRows', sessionId, fileType, rows: JSON.stringify(batch) });
+    await fetch(SHEETS_URL + '?' + p).catch(() => {});
   }
-
-  // Ask Apps Script to assemble chunks and save to Drive
-  const fp = new URLSearchParams({ action:'finalizeUpload', sessionId, fileType, total: chunks.length });
-  await fetch(SHEETS_URL + '?' + fp).catch(() => {});
-
-  // Poll until Drive URL appears in the sheet (up to 90s)
-  const urlField = fileType === 'diff' ? 'diffFileUrl' : 'errorFileUrl';
-  for (let i = 0; i < 30; i++) {
-    await new Promise(r => setTimeout(r, 3000));
-    try {
-      const resp = await fetch(SHEETS_URL);
-      const rows = await resp.json();
-      const row  = rows.find(r => r.id === sessionId);
-      const url  = row?.[urlField];
-      if (url) {
-        const history = loadLocalHistory();
-        const entry   = history.find(e => e.id === sessionId);
-        if (entry?.differenceReport) {
-          entry.differenceReport[urlField] = url;
-          localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
-          renderHistory();
-        }
-        return;
-      }
-    } catch(_) {}
+  // Mark as ready in local history
+  const history = loadLocalHistory();
+  const entry   = history.find(e => e.id === sessionId);
+  if (entry?.differenceReport) {
+    entry.differenceReport[fileType === 'diff' ? 'hasDiffRows' : 'hasErrorRows'] = true;
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
+    renderHistory();
   }
 }
 
-function downloadHistoryReport(url) {
-  if (!url) { alert('Report not yet uploaded. Please wait a moment and try again.'); return; }
-  window.open(url, '_blank');
+async function downloadFromHistory(sessionId, fileType) {
+  try {
+    const p    = new URLSearchParams({ action:'getDiffRows', sessionId, fileType });
+    const resp = await fetch(SHEETS_URL + '?' + p);
+    const data = await resp.json();
+    if (!data.rows || data.rows.length < 2) { alert('No data found for this report.'); return; }
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.aoa_to_sheet(data.rows);
+    XLSX.utils.book_append_sheet(wb, ws, fileType === 'diff' ? 'Differences' : 'Not In System');
+    const now = new Date();
+    const d   = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}`;
+    XLSX.writeFile(wb, `Kushals_${fileType === 'error' ? 'Error' : 'Difference'}_Report_${d}.xlsx`);
+  } catch(e) { alert('Download failed. Please try again.'); }
 }
 
 function downloadErrorReport() {
@@ -1750,19 +1728,17 @@ function renderHistory() {
         badges.push(`<span class="h-badge red">${entry.differenceReport.errorRows.toLocaleString()} not in system</span>`);
     }
 
-    const diffUrl = entry.differenceReport?.diffFileUrl  || '';
-    const errUrl  = entry.differenceReport?.errorFileUrl || '';
+    const hasDiff = entry.differenceReport?.hasDiffRows || entry.differenceReport?.withDiff > 0;
+    const hasErr  = entry.differenceReport?.hasErrorRows || false;
     const dlButtons = entry.differenceReport ? `
       <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-top:0.5rem;">
-        <button onclick="downloadHistoryReport('${diffUrl}')"
-          style="background:${diffUrl ? 'var(--navy)' : '#e5e7eb'};color:${diffUrl ? '#fff' : 'var(--slate)'};border:none;border-radius:6px;padding:0.3rem 0.75rem;font-size:0.75rem;font-family:'DM Sans',sans-serif;font-weight:600;cursor:${diffUrl ? 'pointer' : 'default'};"
-          title="${diffUrl ? '' : 'Still uploading…'}">
+        <button onclick="downloadFromHistory('${entry.id}','diff')"
+          style="background:var(--navy);color:#fff;border:none;border-radius:6px;padding:0.3rem 0.75rem;font-size:0.75rem;font-family:'DM Sans',sans-serif;font-weight:600;cursor:pointer;">
           ⬇ Difference Report (.xlsx)
         </button>
         ${entry.differenceReport.errorRows > 0 ? `
-        <button onclick="downloadHistoryReport('${errUrl}')"
-          style="background:${errUrl ? '#FEF3C7' : '#e5e7eb'};color:${errUrl ? '#92400E' : 'var(--slate)'};border:none;border-radius:6px;padding:0.3rem 0.75rem;font-size:0.75rem;font-family:'DM Sans',sans-serif;font-weight:600;cursor:${errUrl ? 'pointer' : 'default'};"
-          title="${errUrl ? '' : 'Still uploading…'}">
+        <button onclick="downloadFromHistory('${entry.id}','error')"
+          style="background:#FEF3C7;color:#92400E;border:none;border-radius:6px;padding:0.3rem 0.75rem;font-size:0.75rem;font-family:'DM Sans',sans-serif;font-weight:600;cursor:pointer;">
           ⚠ Error Report (.xlsx)
         </button>` : ''}
       </div>` : '';

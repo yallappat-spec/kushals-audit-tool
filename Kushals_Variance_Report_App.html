@@ -1499,9 +1499,26 @@ async function generateDifferenceReport() {
     currentSession.physicalScan     = pendingPhysFile ? { ...pendingPhysFile, rows: physSheetData.length } : null;
     currentSession.differenceReport = { generatedAt: new Date().toISOString(), matched, withDiff, notScanned, errorRows: errorRows.length };
     saveHistoryEntry();
-    // Upload XLSX files to Google Drive for cross-device access
+    // Upload diff-only XLSX to Drive (only rows with differences — keeps file tiny)
     if (sheetsConfigured()) {
-      uploadReportToDrive(currentSession.id, finalOutputWB, 'diff');
+      const diffRows = finalOut.filter(r => r['Difference Qty'] !== 0);
+      if (diffRows.length > 0) {
+        const diffWB = XLSX.utils.book_new();
+        const diffWsData = [
+          ['Item Code','Item Name','Barcode Value','DESIGNNO','STYLE','COLOR','POLISH','SIZE','BRAND','DUMMY7','DUMMY8','Location','System Qty','Physical Qty','Difference Qty','Pur price','MRP'],
+          ...diffRows.map(r => [
+            r['Item Code'], r['Item Name'], r['Barcode Value'],
+            r['DESIGNNO'],  r['STYLE'],     r['COLOR'],
+            r['POLISH'],    r['SIZE'],      r['BRAND'],
+            r['DUMMY7'],    r['DUMMY8'],    r['Location'],
+            r['System Qty'], r['Physical Qty'], r['Difference Qty'],
+            r['Pur price'],  r['MRP']
+          ])
+        ];
+        const diffWs = XLSX.utils.aoa_to_sheet(diffWsData);
+        XLSX.utils.book_append_sheet(diffWB, diffWs, 'Differences');
+        uploadReportToDrive(currentSession.id, diffWB, 'diff');
+      }
       if (errorOutputWB) uploadReportToDrive(currentSession.id, errorOutputWB, 'error');
     }
   }

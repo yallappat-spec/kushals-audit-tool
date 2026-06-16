@@ -1515,16 +1515,25 @@ function downloadDifferenceReport() {
 }
 
 async function uploadReportToDrive(sessionId, wb, fileType) {
-  // Submit via hidden form — bypasses CORS restrictions entirely
-  const b64 = XLSX.write(wb, { bookType: 'xlsx', type: 'base64' });
-  const form = document.getElementById('driveUploadForm');
-  form.action = SHEETS_URL;
-  document.getElementById('driveSessionId').value = sessionId;
-  document.getElementById('driveFileType').value  = fileType;
-  document.getElementById('driveData').value       = b64;
-  form.submit();
+  const b64       = XLSX.write(wb, { bookType: 'xlsx', type: 'base64' });
+  const CHUNK     = 4000; // chars per GET request (safe URL length)
+  const chunks    = [];
+  for (let i = 0; i < b64.length; i += CHUNK) chunks.push(b64.slice(i, i + CHUNK));
 
-  // Poll the remote history until the Drive URL appears (up to 90s)
+  // Send chunks in batches of 5 (avoid overwhelming Apps Script)
+  for (let b = 0; b < chunks.length; b += 5) {
+    await Promise.all(chunks.slice(b, b + 5).map((data, j) => {
+      const idx = b + j;
+      const p = new URLSearchParams({ action:'storeChunk', sessionId, fileType, idx, total: chunks.length, data });
+      return fetch(SHEETS_URL + '?' + p).catch(() => {});
+    }));
+  }
+
+  // Ask Apps Script to assemble chunks and save to Drive
+  const fp = new URLSearchParams({ action:'finalizeUpload', sessionId, fileType, total: chunks.length });
+  await fetch(SHEETS_URL + '?' + fp).catch(() => {});
+
+  // Poll until Drive URL appears in the sheet (up to 90s)
   const urlField = fileType === 'diff' ? 'diffFileUrl' : 'errorFileUrl';
   for (let i = 0; i < 30; i++) {
     await new Promise(r => setTimeout(r, 3000));

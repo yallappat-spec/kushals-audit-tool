@@ -9,33 +9,23 @@
 const SHEET_NAME        = 'UploadHistory';
 const REPORT_FOLDER_ID  = 'YOUR_DRIVE_FOLDER_ID'; // <-- replace this
 
-// ─── GET: return history rows, write session, or clear ───────────────────────
+// ─── GET: all operations go through doGet to avoid Apps Script POST redirect issues ───
 function doGet(e) {
   try {
     const action = e?.parameter?.action;
-    if (action === 'clear') return handleClear();
-    if (action === 'write') return handleWrite(e.parameter.data);
+    if (action === 'clear')          return handleClear();
+    if (action === 'write')          return handleWrite(e.parameter.data);
+    if (action === 'storeChunk')     return handleStoreChunk(e.parameter);
+    if (action === 'finalizeUpload') return handleFinalizeUpload(e.parameter);
     return handleRead();
   } catch(err) {
     return jsonResponse({ error: err.message });
   }
 }
 
-// ─── POST: save an XLSX file to Google Drive ─────────────────────────────────
-// Accepts both form POST (e.parameter) and JSON POST (e.postData.contents).
 function doPost(e) {
-  try {
-    let params;
-    if (e.postData?.type === 'application/x-www-form-urlencoded') {
-      params = e.parameter;
-    } else {
-      params = JSON.parse(e.postData?.contents || '{}');
-    }
-    if (params.action === 'saveFile') return handleSaveFile(params);
-    return jsonResponse({ error: 'Unknown action' });
-  } catch(err) {
-    return jsonResponse({ error: err.message });
-  }
+  // Not used — Apps Script 302 redirect drops POST body.
+  return jsonResponse({ error: 'Use GET' });
 }
 
 // ─── Read all rows ────────────────────────────────────────────────────────────
@@ -72,6 +62,31 @@ function handleWrite(dataStr) {
   }
   if (!found) sheet.appendRow(flat);
   return jsonResponse({ ok: true });
+}
+
+// ─── Store one base64 chunk in Script Properties ─────────────────────────────
+function handleStoreChunk(params) {
+  const { sessionId, fileType, idx, data } = params;
+  if (!sessionId || !fileType || idx === undefined || !data) return jsonResponse({ error: 'Missing params' });
+  const key = 'chunk_' + sessionId + '_' + fileType + '_' + idx;
+  PropertiesService.getScriptProperties().setProperty(key, data);
+  return jsonResponse({ ok: true });
+}
+
+// ─── Assemble all stored chunks and save to Drive ────────────────────────────
+function handleFinalizeUpload(params) {
+  const { sessionId, fileType, total } = params;
+  if (!sessionId || !fileType || !total) return jsonResponse({ error: 'Missing params' });
+  const props = PropertiesService.getScriptProperties();
+  let b64 = '';
+  for (let i = 0; i < Number(total); i++) {
+    const key   = 'chunk_' + sessionId + '_' + fileType + '_' + i;
+    const chunk = props.getProperty(key);
+    if (!chunk) return jsonResponse({ error: 'Missing chunk ' + i });
+    b64 += chunk;
+    props.deleteProperty(key);
+  }
+  return handleSaveFile({ sessionId, fileType, data: b64 });
 }
 
 // ─── Save XLSX to Google Drive, return download URL ───────────────────────────

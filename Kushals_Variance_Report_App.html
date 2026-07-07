@@ -520,9 +520,84 @@
   .h-badge.green  { background: var(--green-bg); color: var(--green); }
   .h-badge.orange { background: #FEF3C7; color: #92400E; }
   .h-badge.red    { background: var(--red-bg); color: var(--red); }
+
+  /* ─── Login gate ─────────────────────────────────────────────────────────── */
+  #loginOverlay {
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+    background: linear-gradient(135deg, var(--navy-dark) 0%, var(--navy) 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1.5rem;
+  }
+  .login-card {
+    background: var(--white);
+    width: 100%;
+    max-width: 380px;
+    border-radius: 14px;
+    padding: 2.25rem 2rem;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.35);
+    border-top: 4px solid var(--orange);
+  }
+  .login-brand { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.5rem; }
+  .login-title { font-weight: 700; font-size: 1.15rem; color: var(--navy); }
+  .login-sub   { color: var(--slate); font-size: 0.8rem; margin-top: 2px; }
+  .login-label {
+    display: block; font-size: 0.78rem; font-weight: 600;
+    color: var(--navy); margin: 0.9rem 0 0.35rem;
+  }
+  .login-input {
+    width: 100%; padding: 0.7rem 0.85rem;
+    border: 1px solid var(--border); border-radius: 8px;
+    font-family: 'DM Sans', sans-serif; font-size: 0.9rem; color: var(--navy);
+    background: var(--off-white); outline: none;
+  }
+  .login-input:focus { border-color: var(--orange); background: #fff; }
+  .login-btn {
+    width: 100%; margin-top: 1.4rem; padding: 0.75rem;
+    background: var(--orange); color: #fff; border: none; border-radius: 8px;
+    font-family: 'DM Sans', sans-serif; font-weight: 600; font-size: 0.92rem;
+    cursor: pointer; transition: background 0.15s;
+  }
+  .login-btn:hover { background: var(--orange-lt); }
+  .login-error {
+    display: none; margin-top: 0.9rem;
+    background: var(--red-bg); color: var(--red);
+    padding: 0.55rem 0.75rem; border-radius: 8px;
+    font-size: 0.8rem; font-weight: 500;
+  }
+  .btn-logout {
+    background: transparent; color: #7B93B8;
+    border: 1px solid #3A4A7A; border-radius: 6px;
+    padding: 5px 12px; font-family: 'DM Sans', sans-serif;
+    font-size: 0.78rem; font-weight: 600; cursor: pointer;
+    transition: all 0.15s; margin-left: 1rem;
+  }
+  .btn-logout:hover { color: #fff; border-color: var(--orange); }
 </style>
 </head>
 <body>
+
+<!-- ─── LOGIN GATE ─────────────────────────────────────────────────────────── -->
+<div id="loginOverlay">
+  <form class="login-card" id="loginForm" onsubmit="return doLogin(event)">
+    <div class="login-brand">
+      <div class="logo-badge">KUSHALS</div>
+      <div>
+        <div class="login-title">Stock Audit Tool</div>
+        <div class="login-sub">Sign in to continue</div>
+      </div>
+    </div>
+    <label class="login-label" for="loginUser">Username</label>
+    <input class="login-input" type="text" id="loginUser" autocomplete="username" autofocus />
+    <label class="login-label" for="loginPass">Password</label>
+    <input class="login-input" type="password" id="loginPass" autocomplete="current-password" />
+    <button class="login-btn" type="submit">Sign In</button>
+    <div class="login-error" id="loginError">Invalid username or password.</div>
+  </form>
+</div>
 
 <header>
   <div class="logo">
@@ -532,7 +607,10 @@
       <div class="logo-sub">Variance Report Generator</div>
     </div>
   </div>
-  <div class="header-right">v2.0 — Audit &amp; Loss Prevention</div>
+  <div class="header-right">
+    v2.0 — Audit &amp; Loss Prevention
+    <button class="btn-logout" id="logoutBtn" onclick="doLogout()" style="display:none;">Log out</button>
+  </div>
 </header>
 
 <main>
@@ -775,6 +853,39 @@
 <footer>Kushals Fashion Jewellery — Inventory &amp; Operations Audit | Loss Prevention Department</footer>
 
 <script>
+// ─── Login gate ───────────────────────────────────────────────────────────────
+const AUTH_USER = 'Audit';
+const AUTH_PASS = 'Audit@123';
+const AUTH_KEY  = 'kushals_authed';
+
+function doLogin(e) {
+  e.preventDefault();
+  const u = document.getElementById('loginUser').value.trim();
+  const p = document.getElementById('loginPass').value;
+  if (u === AUTH_USER && p === AUTH_PASS) {
+    sessionStorage.setItem(AUTH_KEY, 'ok');
+    revealApp();
+  } else {
+    document.getElementById('loginError').style.display = 'block';
+    document.getElementById('loginPass').value = '';
+    document.getElementById('loginPass').focus();
+  }
+  return false;
+}
+
+function revealApp() {
+  document.getElementById('loginOverlay').style.display = 'none';
+  document.getElementById('logoutBtn').style.display = 'inline-block';
+}
+
+function doLogout() {
+  sessionStorage.removeItem(AUTH_KEY);
+  location.reload();
+}
+
+// Reveal immediately if already signed in this session
+if (sessionStorage.getItem(AUTH_KEY) === 'ok') revealApp();
+
 // ─── State ────────────────────────────────────────────────────────────────────
 let workbook = null;
 let sheetData = null;
